@@ -39,6 +39,25 @@ Define the initial backend entities:
   - selected `agent_id`
   - dynamic user/session metadata
   - `VOICE` conversation config
+- use the current request shape:
+
+```json
+{
+  "agent_id": "<selected_agent_id>",
+  "conversation_metadata": {
+    "name": "<salesperson_name>",
+    "agent_id": "<selected_agent_id>"
+  },
+  "conversation_visibility": false,
+  "conversation_config_type": "VOICE"
+}
+```
+
+- treat `conversation_metadata` as the extension point for additional variables such as:
+  - `user_id`
+  - `user_name`
+  - `scenario`
+  - `session_id`
 - retrieve conversation details
 - list conversations for history views
 
@@ -49,7 +68,13 @@ Define the initial backend entities:
 - resolve the correct persona `agent_id`
 - create conversation metadata payload
 - initiate the web calling flow through the Eigi Daily endpoint
+- handle the expected response fields:
+  - `id`
+  - `conversation_id`
+  - `dailyRoom`
+  - `dailyToken`
 - store session state in MongoDB
+- return the Daily room and token data needed by the frontend to join the call
 
 ## Phase 5: Conversation History
 
@@ -107,8 +132,6 @@ The first useful backend milestone should include:
 
 ## Open Items
 
-- exact Eigi Daily endpoint contract
 - frontend authentication approach
 - feedback generation source and rubric
 - webhook vs polling approach for conversation completion
-
