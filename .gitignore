@@ -1,0 +1,33 @@
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Node / frontend
+node_modules/
+dist/
+build/
+.next/
+.vite/
+coverage/
+
+# Logs and runtime files
+logs/
+*.log
+
+# IDE / OS
+.DS_Store
+.idea/
+.vscode/
+
+# Local tool caches
+.agents/
+
