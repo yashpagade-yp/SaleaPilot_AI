@@ -28,14 +28,13 @@ This file captures the current end-to-end product flow in simple steps.
 4. System creates or activates the `Salesperson` user account.
 5. Invitation status becomes `ACCEPTED`.
 6. Salesperson logs in to the platform.
-7. Salesperson sees the four fixed training scenarios:
+7. Salesperson sees the fixed training scenarios:
    - `ideal`
    - `rude`
-   - `confused`
    - `busy`
 8. Salesperson selects one scenario manually.
 9. System finds the correct Eigi `agent_id` for the selected scenario.
-10. System creates the Eigi Daily voice conversation payload.
+10. System creates the Eigi `/v1/public/daily` voice conversation payload.
 11. Payload includes:
     - selected `agent_id`
     - `conversation_metadata.name` as salesperson name
@@ -46,7 +45,7 @@ This file captures the current end-to-end product flow in simple steps.
     - `dailyRoom`
     - `dailyToken`
 13. System creates the `TrainingSession` record.
-14. Salesperson joins the web call using Daily.
+14. Salesperson joins the browser web call using `dailyRoom` and `dailyToken`.
 15. Salesperson talks to the AI customer persona.
 16. Conversation data is stored and later fetched from Eigi.
 17. After the session ends, the system saves the `Conversation` record.
@@ -64,7 +63,7 @@ This file captures the current end-to-end product flow in simple steps.
 1. Validate user role and access.
 2. Accept scenario selection from salesperson.
 3. Resolve the scenario to Eigi `agent_id`.
-4. Create Daily conversation through Eigi.
+4. Create the session through Eigi `/v1/public/daily`.
 5. Save session identifiers and metadata in MongoDB.
 6. Fetch conversation details after or during completion.
 7. Generate and store one feedback record per training session.
@@ -76,8 +75,9 @@ This file captures the current end-to-end product flow in simple steps.
 - Only admin can send invitations.
 - Only invited salespeople can access training.
 - Only salesperson can start a training session.
-- Four personas are fixed for MVP.
+- Three personas are fixed for the current MVP.
 - Each scenario maps to one Eigi `agent_id`.
+- Eigi is the primary runtime for `v1` voice agent sessions.
 - `conversation_metadata.name` stores the salesperson name.
 - One training session has one conversation.
 - One training session has one feedback record.

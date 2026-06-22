@@ -2,7 +2,7 @@
 
 ## Goal
 
-Build the backend for `SaleaPilot_AI`, a voice-based sales training platform where a salesperson practices with one of four fixed AI customer personas using Daily web calling and Eigi-managed agents.
+Build the backend for `SaleaPilot_AI`, a voice-based sales training platform where a salesperson practices with one of four fixed AI customer personas using Eigi-managed agents and Eigi `/v1/public/daily` sessions joined through Daily web calling.
 
 ## Phase 1: Project Foundation
 
@@ -20,9 +20,7 @@ Define the initial backend entities:
 - `User`
   Salesperson using the platform
 - `Scenario`
-  Fixed persona choice: `ideal`, `rude`, `confused`, `busy`
-- `AgentMapping`
-  Mapping from scenario to Eigi `agent_id`
+  Fixed persona choice: `ideal`, `rude`, `busy`
 - `TrainingSession`
   One practice session started by a salesperson
 - `ConversationRecord`
@@ -34,7 +32,11 @@ Define the initial backend entities:
 
 - store Eigi API configuration securely
 - create a service layer for Eigi API calls
-- support Daily voice conversation creation through the Eigi public Daily flow
+- support voice conversation creation through the Eigi `/v1/public/daily` flow
+- use the current MVP agent mapping:
+  - `ideal` -> `6a397c577d18fcfe84e9d368`
+  - `rude` -> `6a39847f7d18fcfe84e9d8ac`
+  - `busy` -> `6a39855d7d18fcfe84e9d91e`
 - build payload generation using:
   - selected `agent_id`
   - dynamic user/session metadata
@@ -60,6 +62,7 @@ Define the initial backend entities:
   - `session_id`
 - retrieve conversation details
 - list conversations for history views
+- treat Eigi as the primary agent runtime for `v1`
 
 ## Phase 4: Daily Session Flow
 
@@ -67,14 +70,14 @@ Define the initial backend entities:
 - validate selected scenario
 - resolve the correct persona `agent_id`
 - create conversation metadata payload
-- initiate the web calling flow through the Eigi Daily endpoint
+- initiate the web calling flow through the Eigi `/v1/public/daily` endpoint
 - handle the expected response fields:
   - `id`
   - `conversation_id`
   - `dailyRoom`
   - `dailyToken`
 - store session state in MongoDB
-- return the Daily room and token data needed by the frontend to join the call
+- return the Daily room and token data needed by the frontend to join the browser call
 
 ## Phase 5: Conversation History
 
@@ -125,7 +128,7 @@ The first useful backend milestone should include:
 1. FastAPI app bootstrapped
 2. MongoDB connected
 3. fixed scenario-to-agent mapping configured
-4. endpoint to start a training session
+4. endpoint to start an Eigi `/v1/public/daily` training session
 5. conversation metadata saved
 6. endpoint to fetch session history
 7. endpoint to fetch generated feedback

@@ -8,8 +8,8 @@ AI-powered voice training platform for salespeople practicing realistic customer
 
 The system uses:
 
-- `Eigi` for persona-based AI agents and conversation operations
-- `Daily` for web-based voice calling
+- `Eigi` for persona-based AI agents, `/v1/public/daily` session creation, and conversation operations
+- `Daily` for web-based voice call joining
 - `Python + FastAPI` for the backend
 - `MongoDB` for the database
 - `React + Vite` for the frontend
@@ -20,21 +20,29 @@ Help salespeople improve how they handle real customer conversations by practici
 
 ## Fixed Training Personas
 
-The first version supports four predefined personas:
+The current MVP supports three predefined personas:
 
 - `ideal`
 - `rude`
-- `confused`
 - `busy`
 
-These personas are predefined in Eigi and selected manually by the salesperson during training.
+These personas are created in Eigi and selected manually by the salesperson during training.
+
+Current scenario-to-agent mapping:
+
+- `ideal` -> `6a397c577d18fcfe84e9d368`
+- `rude` -> `6a39847f7d18fcfe84e9d8ac`
+- `busy` -> `6a39855d7d18fcfe84e9d91e`
+
+The `confused` persona is intentionally postponed for a later version to reduce credit usage.
 
 ## Core Responsibilities
 
 - user and session management
 - scenario selection for the four fixed personas
 - Eigi agent mapping and conversation metadata creation
-- Daily-based web calling session orchestration
+- Eigi `/v1/public/daily` session orchestration
+- Daily room/token delivery for frontend web call joining
 - conversation history retrieval
 - post-session feedback generation
 
@@ -88,19 +96,30 @@ This means the system should store and use:
 - `dailyRoom` for the web call join flow
 - `dailyToken` for room access
 
+## Runtime Direction For V1
+
+For the first version, the live training call should use:
+
+- `Eigi` as the primary voice-agent runtime
+- `Eigi /v1/public/daily` to create the call session
+- `Daily` on the frontend to join the browser call
+
+This means we do not need a separate Pipecat-based runtime for the core `v1`
+voice flow if Eigi is already handling the agent runtime for these sessions.
+
 ## Planned Backend Modules
 
 - `backend/commons/`
   Shared helpers such as config, logging, constants, and utility functions.
-- `backend/apis/`
+- `backend/core/apis/`
   FastAPI route definitions and request/response schemas.
-- `backend/controllers/`
+- `backend/core/controller/`
   Business orchestration for sessions, conversations, and feedback.
-- `backend/services/`
-  Integrations for Eigi, Daily, and feedback generation.
-- `backend/models/`
+- `backend/core/services/`
+  Integrations for Eigi session creation, conversation retrieval, and feedback generation.
+- `backend/core/models/`
   MongoDB document models and persistence definitions.
-- `backend/repositories/` or `backend/cruds/`
+- `backend/core/cruds/`
   Database access logic.
 
 ## Planning Docs

@@ -11,11 +11,11 @@ Project Context:
 - Only SALESPERSON users can start training sessions
 - A SALESPERSON can start sessions only after being invited by an ADMIN
 - Invitation is sent to the salesperson email
-- The project uses four fixed training personas:
+- The project currently uses three fixed training personas:
   - IDEAL
   - RUDE
-  - CONFUSED
   - BUSY
+- The CONFUSED persona is postponed for a later version
 - Personas are predefined in Eigi
 - Each persona has a fixed Eigi agent_id
 - Voice calls are created through the Eigi Daily flow
@@ -91,6 +91,10 @@ Fields:
 Notes:
 - key must use ScenarioKey enum
 - even though personas are fixed, storing them as records is preferred for flexibility
+- current mapping:
+  - IDEAL -> 6a397c577d18fcfe84e9d368
+  - RUDE -> 6a39847f7d18fcfe84e9d8ac
+  - BUSY -> 6a39855d7d18fcfe84e9d91e
 
 4. TrainingSession
 Purpose:
@@ -195,7 +199,6 @@ Values:
 Values:
 - IDEAL
 - RUDE
-- CONFUSED
 - BUSY
 
 4. TrainingSessionStatus
