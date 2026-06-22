@@ -1,7 +1,7 @@
 """Feedback model definitions for post-session coaching output."""
 
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Dict, List, Optional
 
 from odmantic import Field, Model
 from odmantic.config import ODMConfigDict
@@ -42,11 +42,11 @@ class Feedback(Model):
         min_length=10,
         description="High-level coaching summary for the session.",
     )
-    strengths: list[str] = Field(
+    strengths: List[str] = Field(
         default_factory=list,
         description="List of positive behaviors observed during the session.",
     )
-    improvement_areas: list[str] = Field(
+    improvement_areas: List[str] = Field(
         default_factory=list,
         description="List of areas the salesperson should improve.",
     )
@@ -80,11 +80,11 @@ class Feedback(Model):
         le=10,
         description="Score representing closing effectiveness.",
     )
-    recommendations: list[str] = Field(
+    recommendations: List[str] = Field(
         default_factory=list,
         description="Practical recommendations for the next practice session.",
     )
-    raw_feedback_payload: dict[str, Any] | None = Field(
+    raw_feedback_payload: Optional[Dict[str, Any]] = Field(
         default=None,
         description="Optional raw feedback payload retained for traceability.",
     )

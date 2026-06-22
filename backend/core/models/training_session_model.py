@@ -2,7 +2,7 @@
 
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any
+from typing import Any, Dict, Optional
 
 from odmantic import Field, Model
 from odmantic.config import ODMConfigDict
@@ -65,35 +65,35 @@ class TrainingSession(Model):
         max_length=100,
         description="Salesperson name used inside conversation metadata.",
     )
-    conversation_metadata: dict[str, Any] = Field(
+    conversation_metadata: Dict[str, Any] = Field(
         default_factory=dict,
         description="Dynamic metadata sent with the Eigi Daily conversation payload.",
     )
-    eigi_record_id: str | None = Field(
+    eigi_record_id: Optional[str] = Field(
         default=None,
         description="Internal Eigi record identifier returned by the Daily API.",
     )
-    conversation_id: str | None = Field(
+    conversation_id: Optional[str] = Field(
         default=None,
         description="Eigi conversation identifier for history and transcript lookup.",
     )
-    daily_room: str | None = Field(
+    daily_room: Optional[str] = Field(
         default=None,
         description="Daily room URL returned for the browser call join flow.",
     )
-    daily_token: str | None = Field(
+    daily_token: Optional[str] = Field(
         default=None,
         description="Daily token returned for authenticated room access.",
     )
-    started_at: datetime | None = Field(
+    started_at: Optional[datetime] = Field(
         default=None,
         description="UTC timestamp when the voice session actually started.",
     )
-    ended_at: datetime | None = Field(
+    ended_at: Optional[datetime] = Field(
         default=None,
         description="UTC timestamp when the voice session ended.",
     )
-    duration_seconds: int | None = Field(
+    duration_seconds: Optional[int] = Field(
         default=None,
         ge=0,
         description="Computed session duration in seconds, when available.",
