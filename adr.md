@@ -23,10 +23,10 @@ This file captures the current high-level technical decisions for `SaleaPilot_AI
 
 ## ADR-003: Frontend Stack
 
-- Decision: Use `React + ytap` for the frontend.
+- Decision: Use `React + Vite` for the frontend.
 - Reason:
   - React supports component-driven UI for training, history, and feedback screens
-  - ytap is the chosen frontend companion in the current project direction
+  - Vite supports fast frontend development and a simple app setup
 
 ## ADR-004: Voice Calling Approach
 
@@ -71,7 +71,14 @@ This file captures the current high-level technical decisions for `SaleaPilot_AI
   - matches the observed Eigi payload pattern
   - improves traceability for history and feedback generation
 
-## ADR-009: Feedback Requirement
+## ADR-009: Salesperson Name in Metadata
+
+- Decision: Store the salesperson name in `conversation_metadata.name`.
+- Reason:
+  - improves readability in Eigi-side records
+  - makes conversation history easier to inspect
+
+## ADR-010: Feedback Requirement
 
 - Decision: Backend must support both conversation history and salesperson feedback.
 - Reason:
@@ -85,4 +92,3 @@ These still need confirmation later:
 - authentication and user model design
 - webhook vs polling for conversation completion
 - feedback generation model and rubric
-- exact API contract for the Eigi Daily endpoint

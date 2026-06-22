@@ -1,13 +1,19 @@
 .env
 .env.*
 !.env.example
+.python-version
 
 # Python
 __pycache__/
 *.py[cod]
+.coverage
+.coverage.*
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.pyre/
+htmlcov/
+*.egg-info/
 .venv/
 venv/
 
@@ -17,17 +23,21 @@ dist/
 build/
 .next/
 .vite/
+.turbo/
+.cache/
 coverage/
 
 # Logs and runtime files
 logs/
 *.log
+*.sqlite3
+*.db
 
 # IDE / OS
 .DS_Store
 .idea/
 .vscode/
+Thumbs.db
 
 # Local tool caches
 .agents/
-
