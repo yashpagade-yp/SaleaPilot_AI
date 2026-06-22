@@ -2,6 +2,7 @@
 
 from datetime import datetime, timezone
 from enum import Enum
+from typing import Optional
 
 from odmantic import Field, Model
 from odmantic.config import ODMConfigDict
@@ -63,7 +64,7 @@ class Invitation(Model):
         ...,
         description="UTC timestamp when the invitation becomes invalid.",
     )
-    accepted_at: datetime | None = Field(
+    accepted_at: Optional[datetime] = Field(
         default=None,
         description="UTC timestamp when the invite was accepted.",
     )

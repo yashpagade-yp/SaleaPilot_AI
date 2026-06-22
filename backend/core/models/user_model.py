@@ -2,7 +2,7 @@
 
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any
+from typing import Any, Dict, Optional
 
 from odmantic import Field as ODMField, Model
 from odmantic.config import ODMConfigDict
@@ -51,27 +51,27 @@ class Address(BaseModel):
         extra="forbid",
     )
 
-    street: str | None = PydanticField(
+    street: Optional[str] = PydanticField(
         default=None,
         max_length=200,
         description="Street address line.",
     )
-    city: str | None = PydanticField(
+    city: Optional[str] = PydanticField(
         default=None,
         max_length=100,
         description="City name.",
     )
-    state: str | None = PydanticField(
+    state: Optional[str] = PydanticField(
         default=None,
         max_length=100,
         description="State or province name.",
     )
-    postal_code: str | None = PydanticField(
+    postal_code: Optional[str] = PydanticField(
         default=None,
         max_length=20,
         description="Postal or ZIP code.",
     )
-    country: str | None = PydanticField(
+    country: Optional[str] = PydanticField(
         default=None,
         max_length=100,
         description="Country name.",
@@ -142,7 +142,7 @@ class User(Model):
         unique=True,
         description="Primary email address for account communication.",
     )
-    phone_number: str | None = ODMField(
+    phone_number: Optional[str] = ODMField(
         default=None,
         min_length=10,
         max_length=20,
@@ -158,15 +158,15 @@ class User(Model):
         ...,
         description="Platform role of the user.",
     )
-    address: Address | None = ODMField(
+    address: Optional[Address] = ODMField(
         default=None,
         description="Optional embedded postal address for the user.",
     )
-    otp: UserOtp | None = ODMField(
+    otp: Optional[UserOtp] = ODMField(
         default=None,
         description="Optional active OTP state for authentication flows.",
     )
-    auth_metadata: dict[str, Any] = ODMField(
+    auth_metadata: Dict[str, Any] = ODMField(
         default_factory=dict,
         description="Extensible auth-related metadata for the user account.",
     )
@@ -174,7 +174,7 @@ class User(Model):
         default=True,
         description="Whether the account is active and allowed to use the platform.",
     )
-    last_login_at: datetime | None = ODMField(
+    last_login_at: Optional[datetime] = ODMField(
         default=None,
         description="UTC timestamp of the latest successful login.",
     )

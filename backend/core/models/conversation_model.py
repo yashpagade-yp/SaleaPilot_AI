@@ -2,7 +2,7 @@
 
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any
+from typing import Any, Dict, Optional
 
 from odmantic import Field, Model
 from odmantic.config import ODMConfigDict
@@ -70,19 +70,19 @@ class Conversation(Model):
         default=False,
         description="Visibility flag used when the conversation was created.",
     )
-    transcript: str | None = Field(
+    transcript: Optional[str] = Field(
         default=None,
         description="Conversation transcript text or normalized transcript payload.",
     )
-    analysis: dict[str, Any] = Field(
+    analysis: Dict[str, Any] = Field(
         default_factory=dict,
         description="Structured analysis data returned by Eigi, if available.",
     )
-    raw_payload: dict[str, Any] = Field(
+    raw_payload: Dict[str, Any] = Field(
         default_factory=dict,
         description="Raw Eigi conversation payload stored for traceability.",
     )
-    fetched_at: datetime | None = Field(
+    fetched_at: Optional[datetime] = Field(
         default=None,
         description="UTC timestamp when the latest Eigi payload was fetched.",
     )
