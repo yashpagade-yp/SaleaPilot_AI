@@ -1,6 +1,6 @@
 """Controller logic for authentication-related workflows."""
 
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException, status
 
@@ -45,6 +45,20 @@ class AuthController:
             "role": user.role,
             "is_active": user.is_active,
         }
+
+    @staticmethod
+    def _as_utc(value: datetime) -> datetime:
+        """Normalize a datetime value to UTC-aware form.
+
+        Args:
+            value (datetime): Datetime value loaded from persistence.
+
+        Returns:
+            datetime: UTC-aware datetime for safe comparisons.
+        """
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
 
     async def admin_login(self, *, phone_number: str, password: str) -> dict:
         """Validate admin credentials and issue a fresh OTP challenge.
@@ -146,7 +160,7 @@ class AuthController:
                     detail="No active OTP found for this user",
                 )
 
-            if user.otp.expires_at < get_utc_now():
+            if self._as_utc(user.otp.expires_at) < get_utc_now():
                 logging.warning(f"Expired admin OTP attempted for {phone_number}")
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
