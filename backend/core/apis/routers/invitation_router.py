@@ -19,7 +19,7 @@ from core.models.user_model import UserRole
 
 invitation_router = APIRouter(prefix="/v1/invitations", tags=["invitations"])
 logging = logger(__name__)
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/v1/auth/salesperson/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/v1/auth/admin/login")
 
 
 async def _get_authenticated_user(token: str):
@@ -115,24 +115,21 @@ async def send_invitation(
 async def accept_invitation(
     request: AcceptInvitationRequest,
 ) -> InvitationAcceptResponse:
-    """Accept a pending invitation and create a salesperson account.
+    """Acknowledge a pending invitation token and explain the next step.
 
     Args:
-        request (AcceptInvitationRequest): Invitation acceptance payload.
+        request (AcceptInvitationRequest): Invitation token payload.
 
     Returns:
-        InvitationAcceptResponse: Account creation acknowledgement payload.
+        InvitationAcceptResponse: Invitation acknowledgement payload.
 
     Raises:
-        HTTPException: If the invitation is invalid or acceptance fails.
+        HTTPException: If the invitation is invalid or acknowledgement fails.
     """
     try:
         logging.info("Calling POST /v1/invitations/accept endpoint")
         response = await InvitationController().accept_invitation(
             token=request.token,
-            first_name=request.first_name,
-            last_name=request.last_name,
-            password=request.password,
         )
         return InvitationAcceptResponse(**response)
     except HTTPException as httperror:

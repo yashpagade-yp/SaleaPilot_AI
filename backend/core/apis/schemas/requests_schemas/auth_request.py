@@ -20,39 +20,31 @@ class AdminLoginRequest(BaseModel):
         description="Admin plain-text password submitted for verification.",
     )
 
-
-class AdminVerifyOtpRequest(BaseModel):
-    """Request payload for verifying an admin login OTP."""
-
-    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
-
-    phone_number: str = Field(
-        ...,
-        min_length=10,
-        max_length=20,
-        description="Admin phone number associated with the OTP.",
-    )
-    otp: str = Field(
-        ...,
-        min_length=4,
-        max_length=8,
-        description="OTP code entered by the admin.",
-    )
-
-
-class SalespersonLoginRequest(BaseModel):
-    """Request payload for salesperson login."""
+class SalespersonOtpRequest(BaseModel):
+    """Request payload for starting salesperson email-OTP login."""
 
     model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
 
     email: EmailStr = Field(
         ...,
-        description="Salesperson email used for login.",
+        description="Invited salesperson email used for OTP delivery.",
     )
-    password: str = Field(
+
+
+class SalespersonVerifyOtpRequest(BaseModel):
+    """Request payload for verifying salesperson email OTP."""
+
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+
+    email: EmailStr = Field(
         ...,
-        min_length=8,
-        description="Salesperson plain-text password submitted for verification.",
+        description="Invited salesperson email associated with the OTP.",
+    )
+    otp: str = Field(
+        ...,
+        min_length=4,
+        max_length=8,
+        description="OTP code entered by the salesperson.",
     )
 
 

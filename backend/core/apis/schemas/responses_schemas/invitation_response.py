@@ -15,6 +15,8 @@ class InvitationResponse(BaseModel):
 
     id: str = Field(..., description="Invitation identifier.")
     email: EmailStr = Field(..., description="Email address receiving the invitation.")
+    first_name: str = Field(..., description="First name captured on the invitation.")
+    last_name: str = Field(..., description="Last name captured on the invitation.")
     role: UserRole = Field(..., description="Role granted by the invitation.")
     status: InvitationStatus = Field(..., description="Current invitation status.")
     invited_by: str = Field(..., description="Admin user identifier who sent the invite.")
@@ -26,10 +28,12 @@ class InvitationResponse(BaseModel):
 
 
 class InvitationAcceptResponse(BaseModel):
-    """Response payload after a salesperson accepts an invitation."""
+    """Response payload after an invitation token is acknowledged."""
 
     model_config = ConfigDict(extra="forbid")
 
-    message: str = Field(..., description="Human-readable invitation acceptance result.")
-    user_id: str = Field(..., description="Created or activated salesperson user identifier.")
+    message: str = Field(..., description="Human-readable invitation acknowledgement result.")
+    email: EmailStr = Field(..., description="Invited salesperson email address.")
+    status: InvitationStatus = Field(..., description="Current invitation status.")
+    next_step: str = Field(..., description="Guidance for the salesperson's next action.")
 

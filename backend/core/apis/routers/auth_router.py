@@ -5,9 +5,9 @@ from fastapi import APIRouter, HTTPException, status
 from commons.logger import logger
 from core.apis.schemas.requests_schemas.auth_request import (
     AdminLoginRequest,
-    AdminVerifyOtpRequest,
     ResetPasswordRequest,
-    SalespersonLoginRequest,
+    SalespersonOtpRequest,
+    SalespersonVerifyOtpRequest,
 )
 from core.apis.schemas.responses_schemas.auth_response import (
     LoginResponse,
@@ -22,16 +22,16 @@ logging = logger(__name__)
 @auth_router.post(
     "/admin/login",
     status_code=status.HTTP_200_OK,
-    response_model=OtpSentResponse,
+    response_model=LoginResponse,
 )
-async def admin_login(request: AdminLoginRequest) -> OtpSentResponse:
-    """Start admin login by validating credentials and issuing a mock OTP.
+async def admin_login(request: AdminLoginRequest) -> LoginResponse:
+    """Authenticate an admin directly with phone number and password.
 
     Args:
         request (AdminLoginRequest): Admin login payload with phone and password.
 
     Returns:
-        OtpSentResponse: Mock OTP generation acknowledgement payload.
+        LoginResponse: Auth success payload with token and user profile.
 
     Raises:
         HTTPException: If the credentials are invalid or the request fails.
@@ -42,7 +42,7 @@ async def admin_login(request: AdminLoginRequest) -> OtpSentResponse:
             phone_number=request.phone_number,
             password=request.password,
         )
-        return OtpSentResponse(**response)
+        return LoginResponse(**response)
     except HTTPException as httperror:
         logging.error(f"Error in POST /v1/auth/admin/login endpoint: {httperror}")
         raise httperror
@@ -55,15 +55,56 @@ async def admin_login(request: AdminLoginRequest) -> OtpSentResponse:
 
 
 @auth_router.post(
-    "/admin/verify-otp",
+    "/salesperson/request-otp",
+    status_code=status.HTTP_200_OK,
+    response_model=OtpSentResponse,
+)
+async def salesperson_request_otp(request: SalespersonOtpRequest) -> OtpSentResponse:
+    """Start salesperson login by sending a real email OTP.
+
+    Args:
+        request (SalespersonOtpRequest): Salesperson email payload.
+
+    Returns:
+        OtpSentResponse: OTP dispatch acknowledgement payload.
+
+    Raises:
+        HTTPException: If the email is ineligible or OTP delivery fails.
+    """
+    try:
+        logging.info("Calling POST /v1/auth/salesperson/request-otp endpoint")
+        response = await AuthController().salesperson_request_otp(
+            email=request.email,
+        )
+        return OtpSentResponse(**response)
+    except HTTPException as httperror:
+        logging.error(
+            "Error in POST /v1/auth/salesperson/request-otp endpoint: "
+            f"{httperror}"
+        )
+        raise httperror
+    except Exception as error:
+        logging.error(
+            f"Error in POST /v1/auth/salesperson/request-otp endpoint: {error}"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal Server Error",
+        )
+
+
+@auth_router.post(
+    "/salesperson/verify-otp",
     status_code=status.HTTP_200_OK,
     response_model=LoginResponse,
 )
-async def verify_admin_otp(request: AdminVerifyOtpRequest) -> LoginResponse:
-    """Verify an admin OTP and complete login.
+async def salesperson_verify_otp(
+    request: SalespersonVerifyOtpRequest,
+) -> LoginResponse:
+    """Verify salesperson OTP and complete email-based login.
 
     Args:
-        request (AdminVerifyOtpRequest): Admin OTP verification payload.
+        request (SalespersonVerifyOtpRequest): Salesperson OTP verification payload.
 
     Returns:
         LoginResponse: Auth success payload with token and user profile.
@@ -72,56 +113,22 @@ async def verify_admin_otp(request: AdminVerifyOtpRequest) -> LoginResponse:
         HTTPException: If the OTP or user state is invalid.
     """
     try:
-        logging.info("Calling POST /v1/auth/admin/verify-otp endpoint")
-        response = await AuthController().verify_admin_otp(
-            phone_number=request.phone_number,
+        logging.info("Calling POST /v1/auth/salesperson/verify-otp endpoint")
+        response = await AuthController().salesperson_verify_otp(
+            email=request.email,
             otp=request.otp,
         )
         return LoginResponse(**response)
     except HTTPException as httperror:
         logging.error(
-            f"Error in POST /v1/auth/admin/verify-otp endpoint: {httperror}"
+            "Error in POST /v1/auth/salesperson/verify-otp endpoint: "
+            f"{httperror}"
         )
         raise httperror
     except Exception as error:
-        logging.error(f"Error in POST /v1/auth/admin/verify-otp endpoint: {error}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Internal Server Error",
-        )
-
-
-@auth_router.post(
-    "/salesperson/login",
-    status_code=status.HTTP_200_OK,
-    response_model=LoginResponse,
-)
-async def salesperson_login(request: SalespersonLoginRequest) -> LoginResponse:
-    """Authenticate a salesperson using email and password.
-
-    Args:
-        request (SalespersonLoginRequest): Salesperson login payload.
-
-    Returns:
-        LoginResponse: Auth success payload with token and user profile.
-
-    Raises:
-        HTTPException: If the credentials are invalid or the user is inactive.
-    """
-    try:
-        logging.info("Calling POST /v1/auth/salesperson/login endpoint")
-        response = await AuthController().salesperson_login(
-            email=request.email,
-            password=request.password,
-        )
-        return LoginResponse(**response)
-    except HTTPException as httperror:
         logging.error(
-            f"Error in POST /v1/auth/salesperson/login endpoint: {httperror}"
+            f"Error in POST /v1/auth/salesperson/verify-otp endpoint: {error}"
         )
-        raise httperror
-    except Exception as error:
-        logging.error(f"Error in POST /v1/auth/salesperson/login endpoint: {error}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Internal Server Error",

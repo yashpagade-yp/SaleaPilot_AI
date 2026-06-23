@@ -18,6 +18,19 @@ The system uses:
 
 Help salespeople improve how they handle real customer conversations by practicing with AI-driven customer personas.
 
+## Current Auth Direction
+
+The product authentication flow now follows these rules:
+
+- `Admin` already exists in the backend database
+- admin logs in directly with `phone number + password`
+- admin does **not** use a mock OTP flow
+- admin sends an invitation to the salesperson's real email address
+- invitation allows that salesperson email to use the platform login flow
+- salesperson logs in with the invited email address
+- system sends a real OTP to the salesperson email
+- salesperson completes login by entering the email OTP
+
 ## Fixed Training Personas
 
 The current MVP supports three predefined personas:
@@ -39,6 +52,9 @@ The `confused` persona is intentionally postponed for a later version to reduce 
 ## Core Responsibilities
 
 - user and session management
+- direct admin authentication
+- salesperson invitation by email
+- salesperson email-OTP authentication
 - scenario selection for the four fixed personas
 - Eigi agent mapping and conversation metadata creation
 - Eigi `/v1/public/daily` session orchestration
@@ -95,6 +111,23 @@ This means the system should store and use:
 - `conversation_id` for history lookup
 - `dailyRoom` for the web call join flow
 - `dailyToken` for room access
+
+## Product Auth And Access Flow
+
+### Admin
+
+- admin record is pre-created in the database
+- admin logs in using phone number and password
+- admin opens the invitation area after successful login
+- admin sends an invitation to the salesperson email
+
+### Salesperson
+
+- salesperson receives the invitation email
+- salesperson logs in with the invited email address
+- system sends a real OTP to that email
+- salesperson enters OTP to complete login
+- salesperson accesses scenario selection, web calling, history, transcript, and feedback
 
 ## Runtime Direction For V1
 

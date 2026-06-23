@@ -4,6 +4,14 @@
 
 Build the backend for `SaleaPilot_AI`, a voice-based sales training platform where a salesperson practices with one of four fixed AI customer personas using Eigi-managed agents and Eigi `/v1/public/daily` sessions joined through Daily web calling.
 
+The current product auth direction is:
+
+- admin already exists in the database
+- admin logs in directly with phone number and password
+- admin does not use a mock OTP step
+- admin sends invitation to the salesperson's real email address
+- salesperson login is based on invited email + real email OTP
+
 ## Phase 1: Project Foundation
 
 - set up FastAPI application structure
@@ -18,7 +26,9 @@ Build the backend for `SaleaPilot_AI`, a voice-based sales training platform whe
 Define the initial backend entities:
 
 - `User`
-  Salesperson using the platform
+  Admin or salesperson using the platform
+- `AuthChallenge`
+  Email OTP challenge for salesperson login
 - `Scenario`
   Fixed persona choice: `ideal`, `rude`, `busy`
 - `TrainingSession`
@@ -64,7 +74,19 @@ Define the initial backend entities:
 - list conversations for history views
 - treat Eigi as the primary agent runtime for `v1`
 
-## Phase 4: Daily Session Flow
+## Phase 4: Auth And Invitation Flow
+
+- keep one admin user pre-created in the database
+- support direct admin login with phone number and password
+- remove mock OTP dependency from the admin path
+- allow only authenticated admins to send invitations
+- store invitation state against the salesperson email address
+- create salesperson email OTP challenges during login
+- send real OTP emails to invited salesperson addresses
+- verify salesperson OTP before granting access token
+- mark invitation accepted when the verified salesperson completes first successful login
+
+## Phase 5: Daily Session Flow
 
 - create backend endpoint to start a training session
 - validate selected scenario
@@ -79,14 +101,14 @@ Define the initial backend entities:
 - store session state in MongoDB
 - return the Daily room and token data needed by the frontend to join the browser call
 
-## Phase 5: Conversation History
+## Phase 6: Conversation History
 
 - persist conversation identifiers and metadata
 - fetch transcript and status from Eigi
 - expose history APIs for frontend consumption
 - support session detail views with scenario, timestamps, and transcript
 
-## Phase 6: Feedback Pipeline
+## Phase 7: Feedback Pipeline
 
 - define a feedback generation workflow after session completion
 - produce structured coaching output for the salesperson
@@ -94,27 +116,34 @@ Define the initial backend entities:
 - store generated feedback in MongoDB
 - expose feedback APIs to the frontend
 
-## Phase 7: Frontend Contract Support
+## Phase 8: Frontend Contract Support
 
 Backend APIs should support frontend flows for:
 
-- user session bootstrap
+- admin login
+- admin invitation sending
+- salesperson email OTP request
+- salesperson OTP verification
 - scenario selection
 - call start
 - session status polling
 - transcript/history view
 - feedback view
 
-## Phase 8: Security and Reliability
+## Phase 9: Security and Reliability
 
 - validate request payloads
 - secure secrets with environment variables
+- protect OTP generation, expiry, retry, and verification rules
 - add retry/error handling around Eigi and Daily integrations
 - add structured logs for external API operations
-- add basic rate limiting and auth once user auth flow is defined
+- add basic rate limiting around auth, OTP, and invitation endpoints
 
-## Phase 9: Testing
+## Phase 10: Testing
 
+- controller tests for direct admin login
+- service tests for salesperson email OTP generation and verification
+- invitation tests tied to salesperson email eligibility
 - unit tests for scenario-to-agent mapping
 - service tests for Eigi payload construction
 - controller tests for session creation flow
@@ -127,14 +156,17 @@ The first useful backend milestone should include:
 
 1. FastAPI app bootstrapped
 2. MongoDB connected
-3. fixed scenario-to-agent mapping configured
-4. endpoint to start an Eigi `/v1/public/daily` training session
-5. conversation metadata saved
-6. endpoint to fetch session history
-7. endpoint to fetch generated feedback
+3. direct admin login working
+4. invitation creation for salesperson email working
+5. salesperson email OTP request and verification working
+6. fixed scenario-to-agent mapping configured
+7. endpoint to start an Eigi `/v1/public/daily` training session
+8. conversation metadata saved
+9. endpoint to fetch session history
+10. endpoint to fetch generated feedback
 
 ## Open Items
 
-- frontend authentication approach
+- final email provider and OTP delivery implementation
 - feedback generation source and rubric
 - webhook vs polling approach for conversation completion

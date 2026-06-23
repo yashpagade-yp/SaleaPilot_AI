@@ -11,7 +11,7 @@ from core.cruds.user_crud import CRUDUser
 
 scenario_router = APIRouter(prefix="/v1/scenarios", tags=["scenarios"])
 logging = logger(__name__)
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/v1/auth/salesperson/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/v1/auth/salesperson/verify-otp")
 
 
 async def _require_active_user(token: str):

@@ -27,7 +27,7 @@ class SendInvitationRequest(BaseModel):
 
 
 class AcceptInvitationRequest(BaseModel):
-    """Request payload for accepting an invitation and creating the user account."""
+    """Request payload for acknowledging an invitation token."""
 
     model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
 
@@ -35,22 +35,5 @@ class AcceptInvitationRequest(BaseModel):
         ...,
         min_length=16,
         description="Invitation token received by the salesperson.",
-    )
-    first_name: str = Field(
-        ...,
-        min_length=2,
-        max_length=50,
-        description="First name confirmed during account setup.",
-    )
-    last_name: str = Field(
-        ...,
-        min_length=2,
-        max_length=50,
-        description="Last name confirmed during account setup.",
-    )
-    password: str = Field(
-        ...,
-        min_length=8,
-        description="Plain-text password chosen by the salesperson.",
     )
 
