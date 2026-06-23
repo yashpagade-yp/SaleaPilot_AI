@@ -42,6 +42,18 @@ class Invitation(Model):
         ...,
         description="Email address receiving the invitation.",
     )
+    first_name: str = Field(
+        ...,
+        min_length=2,
+        max_length=50,
+        description="First name captured by the admin for the invited salesperson.",
+    )
+    last_name: str = Field(
+        ...,
+        min_length=2,
+        max_length=50,
+        description="Last name captured by the admin for the invited salesperson.",
+    )
     role: UserRole = Field(
         default=UserRole.SALESPERSON,
         description="Role granted when the invitation is accepted.",

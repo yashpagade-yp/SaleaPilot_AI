@@ -81,6 +81,28 @@ class CRUDInvitation:
             logging.error(f"Error in CRUDInvitation.get_by_email: {error}")
             raise error
 
+    async def list_by_email(self, *, email: str) -> list[Invitation]:
+        """List invitation records for one email address.
+
+        Returns all invitations associated with the email so controllers can
+        resolve pending, expired, and accepted invitation states explicitly.
+
+        Args:
+            email (str): Invited salesperson email address.
+
+        Returns:
+            list[Invitation]: Invitation records for the email.
+
+        Raises:
+            Exception: If the database read fails.
+        """
+        try:
+            logging.info("Executing CRUDInvitation.list_by_email")
+            return await get_engine().find(Invitation, Invitation.email == email)
+        except Exception as error:
+            logging.error(f"Error in CRUDInvitation.list_by_email: {error}")
+            raise error
+
     async def get_by_token(self, *, token: str) -> Invitation | None:
         """Read an invitation record by acceptance token.
 

@@ -16,7 +16,7 @@ from core.models.user_model import UserRole
 
 conversation_router = APIRouter(prefix="/v1/conversations", tags=["conversations"])
 logging = logger(__name__)
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/v1/auth/salesperson/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/v1/auth/salesperson/verify-otp")
 
 
 async def _require_salesperson(token: str):

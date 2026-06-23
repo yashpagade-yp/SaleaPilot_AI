@@ -28,6 +28,39 @@ class InvitationController:
         self.email_service = EmailService()
 
     @staticmethod
+    def _generate_placeholder_phone_number() -> str:
+        """Generate a unique placeholder phone number for invited salespeople.
+
+        Keeps salesperson placeholder records compatible with the current user
+        storage shape while real login identity continues to use email OTP.
+
+        Returns:
+            str: Random numeric placeholder value.
+        """
+        return f"9{secrets.randbelow(10**17):017d}"
+
+    @staticmethod
+    def _select_pending_invitation(invitations: list) -> object | None:
+        """Return the latest pending invitation from an email's invitation set.
+
+        Args:
+            invitations (list): Invitation model instances for one email.
+
+        Returns:
+            object | None: Pending invitation or None when no active pending
+            invitation exists.
+        """
+        pending_invitations = [
+            invitation
+            for invitation in invitations
+            if invitation.status == InvitationStatus.PENDING
+        ]
+        if not pending_invitations:
+            return None
+
+        return max(pending_invitations, key=lambda invitation: invitation.created_at)
+
+    @staticmethod
     def _as_utc(value: datetime) -> datetime:
         """Normalize a datetime value to UTC-aware form.
 
@@ -66,17 +99,20 @@ class InvitationController:
         try:
             logging.info("Executing InvitationController.send_invitation")
             existing_user = await self.crud_user.get_by_email(email=email)
-            if existing_user is not None:
-                logging.warning(f"Invitation attempted for existing user email {email}")
+            if existing_user is not None and (
+                existing_user.role != UserRole.SALESPERSON or existing_user.is_active
+            ):
+                logging.warning(f"Invitation attempted for existing active user email {email}")
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="A user with this email already exists",
                 )
 
-            existing_invitation = await self.crud_invitation.get_by_email(email=email)
+            existing_invitation = self._select_pending_invitation(
+                await self.crud_invitation.list_by_email(email=email)
+            )
             if (
                 existing_invitation is not None
-                and existing_invitation.status == InvitationStatus.PENDING
                 and existing_invitation.expires_at > get_utc_now()
             ):
                 logging.warning(f"Pending invitation already exists for email {email}")
@@ -85,9 +121,41 @@ class InvitationController:
                     detail="A pending invitation already exists for this email",
                 )
 
+            if existing_user is None:
+                await self.crud_user.create(
+                    obj_in={
+                        "first_name": first_name,
+                        "last_name": last_name,
+                        "email": email,
+                        "phone_number": self._generate_placeholder_phone_number(),
+                        "password_hash": encrypt_password(secrets.token_urlsafe(32)),
+                        "role": UserRole.SALESPERSON,
+                        "is_active": False,
+                        "auth_metadata": {
+                            "invited_via_email": True,
+                        },
+                    }
+                )
+            else:
+                await self.crud_user.update(
+                    id=str(existing_user.id),
+                    obj_in={
+                        "first_name": first_name,
+                        "last_name": last_name,
+                        "phone_number": (
+                            existing_user.phone_number
+                            or self._generate_placeholder_phone_number()
+                        ),
+                        "is_active": False,
+                        "otp": None,
+                    },
+                )
+
             invitation = await self.crud_invitation.create(
                 obj_in={
                     "email": email,
+                    "first_name": first_name,
+                    "last_name": last_name,
                     "role": UserRole.SALESPERSON,
                     "invited_by": invited_by,
                     "status": InvitationStatus.PENDING,
@@ -99,10 +167,13 @@ class InvitationController:
             email_body = (
                 f"Hello {first_name} {last_name},\n\n"
                 "You have been invited to SalesPilot AI as a salesperson.\n"
-                "Use the following invitation token to complete your account setup:\n\n"
+                "Your email has been approved for OTP-based salesperson login.\n"
+                "Use the invitation token below if the product asks you to confirm the invite:\n\n"
                 f"{invitation.token}\n\n"
-                "Once the frontend is connected, this token can be exchanged during the "
-                "invitation acceptance flow.\n\n"
+                "Next step:\n"
+                "- open the salesperson login screen\n"
+                "- enter this invited email address\n"
+                "- request the OTP sent to your email\n\n"
                 "Regards,\nSalesPilot AI"
             )
             self.email_service.send_email(
@@ -114,6 +185,8 @@ class InvitationController:
             return {
                 "id": str(invitation.id),
                 "email": invitation.email,
+                "first_name": invitation.first_name,
+                "last_name": invitation.last_name,
                 "role": invitation.role,
                 "status": invitation.status,
                 "invited_by": invitation.invited_by,
@@ -139,20 +212,14 @@ class InvitationController:
         self,
         *,
         token: str,
-        first_name: str,
-        last_name: str,
-        password: str,
     ) -> dict:
-        """Accept a pending invitation and create a salesperson account.
+        """Acknowledge a pending invitation and explain the next step.
 
         Args:
             token (str): Invitation token.
-            first_name (str): Confirmed salesperson first name.
-            last_name (str): Confirmed salesperson last name.
-            password (str): Plain-text password selected by the salesperson.
 
         Returns:
-            dict: Invitation acceptance response payload.
+            dict: Invitation acknowledgement response payload.
 
         Raises:
             HTTPException: If the invitation is invalid, expired, or already used.
@@ -185,38 +252,14 @@ class InvitationController:
                     detail="Invitation has expired",
                 )
 
-            existing_user = await self.crud_user.get_by_email(email=invitation.email)
-            if existing_user is not None:
-                logging.warning(
-                    f"Invitation acceptance attempted for existing user {invitation.email}"
-                )
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="A user with this email already exists",
-                )
-
-            user = await self.crud_user.create(
-                obj_in={
-                    "first_name": first_name,
-                    "last_name": last_name,
-                    "email": invitation.email,
-                    "password_hash": encrypt_password(password),
-                    "role": UserRole.SALESPERSON,
-                    "is_active": True,
-                }
-            )
-
-            await self.crud_invitation.update(
-                id=str(invitation.id),
-                obj_in={
-                    "status": InvitationStatus.ACCEPTED,
-                    "accepted_at": get_utc_now(),
-                },
-            )
-
             return {
-                "message": "Invitation accepted successfully",
-                "user_id": str(user.id),
+                "message": "Invitation recognized successfully",
+                "email": invitation.email,
+                "status": invitation.status,
+                "next_step": (
+                    "Use the invited email address to request and verify the "
+                    "salesperson login OTP."
+                ),
             }
         except HTTPException:
             raise
