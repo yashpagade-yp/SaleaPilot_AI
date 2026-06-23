@@ -4,7 +4,7 @@ from fastapi import HTTPException, status
 
 from commons.logger import logger
 from core.database.database import get_engine, get_utc_now, parse_object_id
-from core.models.training_session_model import TrainingSession
+from core.models.training_session_model import TrainingSession, TrainingSessionStatus
 
 logging = logger(__name__)
 
@@ -110,6 +110,32 @@ class CRUDTrainingSession:
             logging.error(
                 f"Error in CRUDTrainingSession.get_by_conversation_id: {error}"
             )
+            raise error
+
+    async def list_by_status(
+        self,
+        *,
+        status: TrainingSessionStatus,
+    ) -> list[TrainingSession]:
+        """List training sessions filtered by lifecycle status.
+
+        Args:
+            status (TrainingSessionStatus): Training-session status to filter by.
+
+        Returns:
+            list[TrainingSession]: Matching training session records.
+
+        Raises:
+            Exception: If the database read fails.
+        """
+        try:
+            logging.info("Executing CRUDTrainingSession.list_by_status")
+            return await get_engine().find(
+                TrainingSession,
+                TrainingSession.status == status,
+            )
+        except Exception as error:
+            logging.error(f"Error in CRUDTrainingSession.list_by_status: {error}")
             raise error
 
     async def update(self, *, id: str, obj_in: dict) -> TrainingSession | None:

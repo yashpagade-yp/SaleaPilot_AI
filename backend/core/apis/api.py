@@ -1,14 +1,21 @@
 """FastAPI application wiring for the SalesPilot backend."""
-
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
 from commons.logger import logger
+from core.apis.routers.auth_router import auth_router
+from core.apis.routers.conversation_router import conversation_router
+from core.apis.routers.feedback_router import feedback_router
+from core.apis.routers.invitation_router import invitation_router
+from core.apis.routers.scenario_router import scenario_router
 from core.apis.routers.system_router import system_router
+from core.apis.routers.training_session_router import training_session_router
 from core.database.database import connect_to_mongo, disconnect_from_mongo
+from core.services.post_session_service import PostSessionAutomationService
 
 logging = logger(__name__)
+post_session_service = PostSessionAutomationService()
 
 
 @asynccontextmanager
@@ -26,10 +33,12 @@ async def lifespan(_: FastAPI):
     """
     logging.info("Executing application lifespan startup")
     await connect_to_mongo()
+    await post_session_service.start()
     try:
         yield
     finally:
         logging.info("Executing application lifespan shutdown")
+        await post_session_service.stop()
         await disconnect_from_mongo()
 
 
@@ -39,3 +48,9 @@ app = FastAPI(
     lifespan=lifespan,
 )
 app.include_router(system_router)
+app.include_router(auth_router)
+app.include_router(invitation_router)
+app.include_router(scenario_router)
+app.include_router(training_session_router)
+app.include_router(conversation_router)
+app.include_router(feedback_router)

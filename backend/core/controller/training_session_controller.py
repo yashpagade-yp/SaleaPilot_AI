@@ -1,12 +1,19 @@
 """Controller logic for training session workflows."""
 
+import httpx
+
 from fastapi import HTTPException, status
 
 from commons.logger import logger
+from core.cruds.conversation_crud import CRUDConversation
 from core.cruds.scenario_crud import CRUDScenario
 from core.cruds.training_session_crud import CRUDTrainingSession
 from core.cruds.user_crud import CRUDUser
+from core.database.database import get_utc_now
+from core.models.conversation_model import ConversationStatus
+from core.models.training_session_model import TrainingSessionStatus
 from core.models.training_session_model import TrainingSession
+from core.services.eigi_service import EigiService
 
 logging = logger(__name__)
 
@@ -19,6 +26,8 @@ class TrainingSessionController:
         self.crud_user = CRUDUser()
         self.crud_scenario = CRUDScenario()
         self.crud_training_session = CRUDTrainingSession()
+        self.crud_conversation = CRUDConversation()
+        self.eigi_service = EigiService()
 
     @staticmethod
     def _serialize_training_session(training_session: TrainingSession) -> dict:
@@ -85,7 +94,51 @@ class TrainingSessionController:
                         "user_id": str(user.id),
                         "user_name": conversation_name,
                         "scenario": scenario.key,
+                        "name": conversation_name,
+                        "agent_id": scenario.agent_id,
                     },
+                }
+            )
+
+            conversation_metadata = dict(training_session.conversation_metadata)
+            conversation_metadata["session_id"] = str(training_session.id)
+            conversation_metadata["scenario"] = str(scenario.key)
+            conversation_metadata["name"] = conversation_name
+            conversation_metadata["agent_id"] = scenario.agent_id
+
+            eigi_response = await self.eigi_service.create_daily_session(
+                agent_id=scenario.agent_id,
+                conversation_metadata=conversation_metadata,
+            )
+
+            training_session = await self.crud_training_session.update(
+                id=str(training_session.id),
+                obj_in={
+                    "conversation_metadata": conversation_metadata,
+                    "eigi_record_id": eigi_response.get("id"),
+                    "conversation_id": eigi_response.get("conversation_id"),
+                    "daily_room": eigi_response.get("dailyRoom"),
+                    "daily_token": eigi_response.get("dailyToken"),
+                    "status": TrainingSessionStatus.IN_PROGRESS,
+                    "started_at": get_utc_now(),
+                },
+            )
+            if training_session is None:
+                logging.error("Training session disappeared during Eigi session creation")
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Failed to update training session after Eigi session creation",
+                )
+
+            await self.crud_conversation.create(
+                obj_in={
+                    "training_session_id": str(training_session.id),
+                    "conversation_id": training_session.conversation_id,
+                    "agent_id": training_session.agent_id,
+                    "conversation_status": ConversationStatus.IN_PROGRESS,
+                    "conversation_visibility": False,
+                    "raw_payload": eigi_response,
+                    "fetched_at": get_utc_now(),
                 }
             )
 
@@ -99,7 +152,26 @@ class TrainingSessionController:
             }
         except HTTPException:
             raise
+        except httpx.HTTPStatusError as error:
+            if "training_session" in locals():
+                await self.crud_training_session.update(
+                    id=str(training_session.id),
+                    obj_in={"status": TrainingSessionStatus.FAILED},
+                )
+            logging.error(
+                "Error in TrainingSessionController.start_training_session while calling "
+                f"Eigi: {error.response.text}"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Failed to create Eigi Daily session",
+            )
         except Exception as error:
+            if "training_session" in locals():
+                await self.crud_training_session.update(
+                    id=str(training_session.id),
+                    obj_in={"status": TrainingSessionStatus.FAILED},
+                )
             logging.error(f"Error in TrainingSessionController.start_training_session: {error}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

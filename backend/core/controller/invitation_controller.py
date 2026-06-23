@@ -1,7 +1,8 @@
 """Controller logic for invitation-related workflows."""
 
 import secrets
-from datetime import timedelta
+import smtplib
+from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException, status
 
@@ -12,6 +13,7 @@ from core.cruds.user_crud import CRUDUser
 from core.database.database import get_utc_now
 from core.models.invitation_model import InvitationStatus
 from core.models.user_model import UserRole
+from core.services.email_service import EmailService
 
 logging = logger(__name__)
 
@@ -23,6 +25,21 @@ class InvitationController:
         """Initialize CRUD dependencies for invitation workflows."""
         self.crud_invitation = CRUDInvitation()
         self.crud_user = CRUDUser()
+        self.email_service = EmailService()
+
+    @staticmethod
+    def _as_utc(value: datetime) -> datetime:
+        """Normalize a datetime value to UTC-aware form.
+
+        Args:
+            value (datetime): Datetime value loaded from persistence.
+
+        Returns:
+            datetime: UTC-aware datetime for safe comparisons.
+        """
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
 
     async def send_invitation(
         self,
@@ -79,6 +96,21 @@ class InvitationController:
                 }
             )
 
+            email_body = (
+                f"Hello {first_name} {last_name},\n\n"
+                "You have been invited to SalesPilot AI as a salesperson.\n"
+                "Use the following invitation token to complete your account setup:\n\n"
+                f"{invitation.token}\n\n"
+                "Once the frontend is connected, this token can be exchanged during the "
+                "invitation acceptance flow.\n\n"
+                "Regards,\nSalesPilot AI"
+            )
+            self.email_service.send_email(
+                to_email=email,
+                subject="SalesPilot AI Invitation",
+                body=email_body,
+            )
+
             return {
                 "id": str(invitation.id),
                 "email": invitation.email,
@@ -90,6 +122,12 @@ class InvitationController:
             }
         except HTTPException:
             raise
+        except smtplib.SMTPException as error:
+            logging.error(f"Error in InvitationController.send_invitation email send: {error}")
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Invitation created but email delivery failed",
+            )
         except Exception as error:
             logging.error(f"Error in InvitationController.send_invitation: {error}")
             raise HTTPException(
@@ -136,7 +174,7 @@ class InvitationController:
                     detail="Invitation is no longer valid",
                 )
 
-            if invitation.expires_at < get_utc_now():
+            if self._as_utc(invitation.expires_at) < get_utc_now():
                 logging.warning(f"Expired invitation attempted: {invitation.id}")
                 await self.crud_invitation.update(
                     id=str(invitation.id),
