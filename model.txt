@@ -1,0 +1,287 @@
+SaleaPilot_AI Model Planning
+
+Status:
+- Planning only
+- No implementation decisions should be treated as final code yet
+
+Project Context:
+- Two user roles exist in the system:
+  - ADMIN
+  - SALESPERSON
+- Only SALESPERSON users can start training sessions
+- A SALESPERSON can start sessions only after being invited by an ADMIN
+- Invitation is sent to the salesperson email
+- The project currently uses three fixed training personas:
+  - IDEAL
+  - RUDE
+  - BUSY
+- The CONFUSED persona is postponed for a later version
+- Personas are predefined in Eigi
+- Each persona has a fixed Eigi agent_id
+- Voice calls are created through the Eigi Daily flow
+- conversation_metadata.name should store the salesperson name specifically
+- One TrainingSession has one Conversation
+- One TrainingSession has one Feedback
+
+Recommended MVP Models:
+
+1. User
+Purpose:
+- Stores actual platform users
+
+Fields:
+- id
+- first_name
+- last_name
+- email
+- phone_number (optional)
+- password_hash
+- role
+- address (optional)
+- otp (optional)
+- auth_metadata
+- is_active
+- last_login_at (optional)
+- created_at
+- updated_at
+
+Notes:
+- role must use UserRole enum
+- both ADMIN and SALESPERSON are stored in this model
+- password should never be stored in plain text
+- admin login uses phone number, password, and mock OTP
+- active OTP state is stored as an embedded object
+- address is stored as an embedded object
+
+2. Invitation
+Purpose:
+- Stores invite records sent by admin to salesperson email before account usage
+
+Fields:
+- id
+- email
+- role
+- invited_by
+- status
+- token
+- expires_at
+- accepted_at (optional)
+- created_at
+- updated_at
+
+Notes:
+- recommended as a separate model instead of mixing invitation fields into User
+- role should normally be SALESPERSON for current MVP
+
+3. Scenario
+Purpose:
+- Stores the fixed sales training personas and their agent mapping
+
+Fields:
+- id
+- key
+- title
+- description
+- agent_id
+- is_active
+- sort_order
+- created_at
+- updated_at
+
+Notes:
+- key must use ScenarioKey enum
+- even though personas are fixed, storing them as records is preferred for flexibility
+- current mapping:
+  - IDEAL -> 6a397c577d18fcfe84e9d368
+  - RUDE -> 6a39847f7d18fcfe84e9d8ac
+  - BUSY -> 6a39855d7d18fcfe84e9d91e
+
+4. TrainingSession
+Purpose:
+- Stores one practice session started by a salesperson
+
+Fields:
+- id
+- user_id
+- scenario_id
+- scenario_key
+- agent_id
+- status
+- conversation_name
+- conversation_metadata
+- eigi_record_id
+- conversation_id
+- daily_room
+- daily_token
+- started_at
+- ended_at
+- duration_seconds (optional)
+- created_at
+- updated_at
+
+Notes:
+- only SALESPERSON can create/start this
+- conversation_name should generally match salesperson name
+- conversation_metadata should include the salesperson name and extra session context
+
+5. Conversation
+Purpose:
+- Stores conversation details fetched or synced from Eigi
+
+Fields:
+- id
+- training_session_id
+- conversation_id
+- agent_id
+- conversation_type
+- conversation_status
+- conversation_visibility
+- transcript
+- analysis
+- raw_payload
+- fetched_at
+- created_at
+- updated_at
+
+Notes:
+- one Conversation per TrainingSession
+- training_session_id should be unique if this rule remains fixed
+
+6. Feedback
+Purpose:
+- Stores post-session coaching feedback for the salesperson
+
+Fields:
+- id
+- training_session_id
+- user_id
+- scenario_id
+- summary
+- strengths
+- improvement_areas
+- objection_handling_score
+- confidence_score
+- clarity_score
+- rapport_score
+- closing_score
+- recommendations
+- raw_feedback_payload (optional)
+- created_at
+- updated_at
+
+Notes:
+- one Feedback per TrainingSession
+- training_session_id should be unique
+- strengths, improvement_areas, and recommendations should be structured lists
+
+Recommended Enums:
+
+1. UserRole
+Values:
+- ADMIN
+- SALESPERSON
+
+1A. OtpPurpose
+Values:
+- ADMIN_LOGIN
+- SALESPERSON_LOGIN
+- PASSWORD_RESET
+- INVITATION_VERIFICATION
+
+2. InvitationStatus
+Values:
+- PENDING
+- ACCEPTED
+- EXPIRED
+- CANCELLED
+
+3. ScenarioKey
+Values:
+- IDEAL
+- RUDE
+- BUSY
+
+4. TrainingSessionStatus
+Values:
+- CREATED
+- IN_PROGRESS
+- COMPLETED
+- FAILED
+- CANCELLED
+
+5. ConversationStatus
+Values:
+- CREATED
+- IN_PROGRESS
+- COMPLETED
+- FAILED
+- CANCELLED
+
+6. ConversationType
+Values:
+- VOICE
+
+Important Business Rules:
+
+- Only ADMIN can invite a salesperson
+- Only SALESPERSON can start a training session
+- A salesperson should be invited before using training flows
+- Each Scenario maps to one Eigi agent_id
+- agent_id must be passed dynamically in the Eigi Daily payload
+- conversation_metadata.name should store the salesperson name
+- extra runtime fields can be added in conversation_metadata such as:
+  - user_id
+  - user_name
+  - scenario
+  - session_id
+- The Eigi Daily response provides:
+  - id
+  - conversation_id
+  - dailyRoom
+  - dailyToken
+- These response fields should be represented in TrainingSession
+
+Current Relationship Summary:
+
+- One User can have many TrainingSession
+- One ADMIN can create many Invitation
+- One Scenario can be used in many TrainingSession
+- One TrainingSession has one Conversation
+- One TrainingSession has one Feedback
+
+Simple Step-by-Step Flow:
+
+1. Admin
+- Admin logs in
+- Admin sends invite to salesperson email
+
+2. Invitation
+- Invitation record is created
+- Status starts as PENDING
+
+3. Salesperson
+- Salesperson accepts invite
+- Salesperson account becomes active
+- User role is SALESPERSON
+
+4. Scenario
+- Salesperson selects one scenario
+- Scenario provides the correct Eigi agent_id
+
+5. TrainingSession
+- TrainingSession record is created
+- Session stores user, scenario, agent, Daily room, token, and metadata
+
+6. Conversation
+- Voice session starts through Eigi Daily flow
+- Conversation record stores transcript, status, and fetched Eigi data
+
+7. Feedback
+- After session ends, one feedback record is created
+- Feedback stores summary, scores, strengths, and improvements
+
+Open Planning Questions:
+
+- Whether Scenario records will be seeded in MongoDB or handled partly through config
+- How invitation acceptance creates or activates the salesperson account
+- Whether transcript should be fully stored in MongoDB or refreshed from Eigi when needed
