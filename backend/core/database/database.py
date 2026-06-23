@@ -2,6 +2,7 @@
 
 from datetime import datetime, timezone
 from functools import lru_cache
+from pathlib import Path
 
 from bson import ObjectId
 from dotenv import load_dotenv
@@ -18,7 +19,10 @@ from core.models.scenario_model import Scenario, ScenarioKey
 from core.models.training_session_model import TrainingSession
 from core.models.user_model import User
 
-load_dotenv()
+BACKEND_ROOT = Path(__file__).resolve().parents[2]
+ENV_FILE_PATH = BACKEND_ROOT / ".env"
+
+load_dotenv(dotenv_path=ENV_FILE_PATH)
 
 logging = logger(__name__)
 
@@ -57,7 +61,7 @@ class MongoSettings(BaseSettings):
     mongodb_database: str = Field(..., alias="MONGODB_DATABASE")
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=ENV_FILE_PATH,
         extra="ignore",
         populate_by_name=True,
     )
