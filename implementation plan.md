@@ -2,15 +2,19 @@
 
 ## Goal
 
-Build the backend for `SaleaPilot_AI`, a voice-based sales training platform where a salesperson practices with one of four fixed AI customer personas using Eigi-managed agents and Eigi `/v1/public/daily` sessions joined through Daily web calling.
+Build the product flow for `SaleaPilot_AI`, a voice-based sales training platform where an admin manages workspace access from a dashboard and a salesperson practices with one of three fixed AI customer personas using Eigi-managed agents and Eigi `/v1/public/daily` sessions joined through Daily web calling, with the salesperson workspace centered around `Agents`, `Conversations`, and `Feedback`.
 
 The current product auth direction is:
 
 - admin already exists in the database
 - admin logs in directly with phone number and password
 - admin does not use a mock OTP step
+- admin lands on a dashboard-style management workspace after login
 - admin sends invitation to the salesperson's real email address
-- salesperson login is based on invited email + real email OTP
+- admin should manage invitation and salesperson access from one dashboard
+- salesperson first validates the invitation token copied from the invitation email
+- salesperson login then continues with invited email + real email OTP
+- salesperson-side flow may receive additional UX updates later
 
 ## Phase 1: Project Foundation
 
@@ -79,12 +83,23 @@ Define the initial backend entities:
 - keep one admin user pre-created in the database
 - support direct admin login with phone number and password
 - remove mock OTP dependency from the admin path
+- route the admin into a dedicated dashboard experience after login
 - allow only authenticated admins to send invitations
 - store invitation state against the salesperson email address
+- support dashboard-driven salesperson listing and access status visibility
+- validate invitation token before salesperson OTP request is allowed
 - create salesperson email OTP challenges during login
 - send real OTP emails to invited salesperson addresses
 - verify salesperson OTP before granting access token
 - mark invitation accepted when the verified salesperson completes first successful login
+
+## Phase 4A: Admin Dashboard Flow
+
+- design the admin experience around one management dashboard
+- include invite form inside the dashboard
+- include salesperson list inside the dashboard
+- show basic salesperson status such as `INVITED`, `ACTIVE`, and `INACTIVE`
+- prepare UI/backend contract for actions like conversation viewing and activation control
 
 ## Phase 5: Daily Session Flow
 
@@ -103,6 +118,7 @@ Define the initial backend entities:
 
 ## Phase 6: Conversation History
 
+- support the `Conversations` section of the salesperson workspace
 - persist conversation identifiers and metadata
 - fetch transcript and status from Eigi
 - expose history APIs for frontend consumption
@@ -110,6 +126,7 @@ Define the initial backend entities:
 
 ## Phase 7: Feedback Pipeline
 
+- support the `Feedback` section of the salesperson workspace
 - define a feedback generation workflow after session completion
 - produce structured coaching output for the salesperson
 - include strengths, missed opportunities, objection handling quality, and improvement suggestions
@@ -121,14 +138,18 @@ Define the initial backend entities:
 Backend APIs should support frontend flows for:
 
 - admin login
+- admin dashboard load
 - admin invitation sending
+- admin salesperson listing and status display
+- invitation token validation before salesperson login
 - salesperson email OTP request
 - salesperson OTP verification
+- salesperson workspace `Agents` view
 - scenario selection
 - call start
 - session status polling
-- transcript/history view
-- feedback view
+- salesperson workspace `Conversations` view
+- salesperson workspace `Feedback` view
 
 ## Phase 9: Security and Reliability
 
@@ -157,16 +178,18 @@ The first useful backend milestone should include:
 1. FastAPI app bootstrapped
 2. MongoDB connected
 3. direct admin login working
-4. invitation creation for salesperson email working
-5. salesperson email OTP request and verification working
-6. fixed scenario-to-agent mapping configured
-7. endpoint to start an Eigi `/v1/public/daily` training session
-8. conversation metadata saved
-9. endpoint to fetch session history
-10. endpoint to fetch generated feedback
+4. admin dashboard-ready invitation flow working
+5. invitation creation for salesperson email working
+6. salesperson email OTP request and verification working
+7. fixed scenario-to-agent mapping configured
+8. endpoint to start an Eigi `/v1/public/daily` training session
+9. conversation metadata saved
+10. endpoint to fetch session history
+11. endpoint to fetch generated feedback
 
 ## Open Items
 
 - final email provider and OTP delivery implementation
 - feedback generation source and rubric
 - webhook vs polling approach for conversation completion
+- frontend UX implementation for invitation-token-first salesperson login

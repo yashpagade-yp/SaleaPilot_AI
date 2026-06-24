@@ -168,12 +168,14 @@ class InvitationController:
                 f"Hello {first_name} {last_name},\n\n"
                 "You have been invited to SalesPilot AI as a salesperson.\n"
                 "Your email has been approved for OTP-based salesperson login.\n"
-                "Use the invitation token below if the product asks you to confirm the invite:\n\n"
+                "Copy the invitation token below and paste it into the invitation field on the salesperson login screen:\n\n"
                 f"{invitation.token}\n\n"
                 "Next step:\n"
                 "- open the salesperson login screen\n"
+                "- paste this invitation token first\n"
                 "- enter this invited email address\n"
-                "- request the OTP sent to your email\n\n"
+                "- request the OTP sent to your email\n"
+                "- enter the OTP to continue into your workspace\n\n"
                 "Regards,\nSalesPilot AI"
             )
             self.email_service.send_email(
@@ -213,7 +215,7 @@ class InvitationController:
         *,
         token: str,
     ) -> dict:
-        """Acknowledge a pending invitation and explain the next step.
+        """Validate an invitation token and explain the salesperson's next step.
 
         Args:
             token (str): Invitation token.
@@ -234,8 +236,8 @@ class InvitationController:
                     detail="Invitation not found",
                 )
 
-            if invitation.status != InvitationStatus.PENDING:
-                logging.warning(f"Invitation is not pending: {invitation.id}")
+            if invitation.status == InvitationStatus.CANCELLED:
+                logging.warning(f"Cancelled invitation attempted: {invitation.id}")
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="Invitation is no longer valid",
@@ -253,11 +255,11 @@ class InvitationController:
                 )
 
             return {
-                "message": "Invitation recognized successfully",
+                "message": "Invitation token matched successfully",
                 "email": invitation.email,
                 "status": invitation.status,
                 "next_step": (
-                    "Use the invited email address to request and verify the "
+                    "Use this same invited email address to request the real "
                     "salesperson login OTP."
                 ),
             }

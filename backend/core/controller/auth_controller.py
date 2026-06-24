@@ -86,6 +86,76 @@ class AuthController:
 
         return max(pending_invitations, key=lambda invitation: invitation.created_at)
 
+    async def _get_valid_invitation_for_token(
+        self,
+        *,
+        token: str,
+        email: str | None = None,
+    ):
+        """Return a valid invitation record for one invitation token.
+
+        Accepts invitations that are still pending or already accepted so the
+        same invited salesperson can continue using the login flow.
+
+        Args:
+            token (str): Invitation token copied from the invitation email.
+            email (str | None): Optional invited email to cross-check with the token.
+
+        Returns:
+            Invitation: Matching valid invitation record.
+
+        Raises:
+            HTTPException: If the token is unknown, mismatched, expired, or cancelled.
+        """
+        invitation = await self.crud_invitation.get_by_token(token=token)
+        if invitation is None:
+            logging.warning("Salesperson OTP request attempted with unknown invitation token")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Invitation token not found",
+            )
+
+        if email is not None and invitation.email != email:
+            logging.warning(
+                f"Invitation token email mismatch for requested salesperson email {email}"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invitation token does not match this email",
+            )
+
+        if invitation.status == InvitationStatus.CANCELLED:
+            logging.warning(f"Cancelled invitation token attempted for email {invitation.email}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invitation is no longer valid",
+            )
+
+        if self._as_utc(invitation.expires_at) < get_utc_now():
+            logging.warning(f"Expired invitation token attempted for email {invitation.email}")
+            await self.crud_invitation.update(
+                id=str(invitation.id),
+                obj_in={"status": InvitationStatus.EXPIRED},
+            )
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invitation has expired",
+            )
+
+        if invitation.status not in (
+            InvitationStatus.PENDING,
+            InvitationStatus.ACCEPTED,
+        ):
+            logging.warning(
+                f"Invitation token attempted with unsupported status {invitation.status}"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invitation is no longer valid",
+            )
+
+        return invitation
+
     async def admin_login(self, *, phone_number: str, password: str) -> dict:
         """Validate admin credentials and return a signed login response.
 
@@ -174,10 +244,16 @@ class AuthController:
             detail="Admin OTP login is no longer supported",
         )
 
-    async def salesperson_request_otp(self, *, email: str) -> dict:
-        """Generate and email an OTP for an invited salesperson.
+    async def salesperson_request_otp(
+        self,
+        *,
+        invitation_token: str,
+        email: str,
+    ) -> dict:
+        """Validate an invitation token and email an OTP for an invited salesperson.
 
         Args:
+            invitation_token (str): Invitation token copied from the invitation email.
             email (str): Invited salesperson email address.
 
         Returns:
@@ -188,6 +264,10 @@ class AuthController:
         """
         try:
             logging.info("Executing AuthController.salesperson_request_otp")
+            await self._get_valid_invitation_for_token(
+                token=invitation_token,
+                email=email,
+            )
             user = await self.crud_user.get_by_email(email=email)
             if user is None or user.role != UserRole.SALESPERSON:
                 logging.warning(f"Salesperson user not found for email {email}")
@@ -244,7 +324,7 @@ class AuthController:
             )
 
             return {
-                "message": "OTP sent successfully to salesperson email",
+                "message": "Invitation token verified. OTP sent successfully to salesperson email",
             }
         except HTTPException:
             raise

@@ -60,10 +60,10 @@ async def admin_login(request: AdminLoginRequest) -> LoginResponse:
     response_model=OtpSentResponse,
 )
 async def salesperson_request_otp(request: SalespersonOtpRequest) -> OtpSentResponse:
-    """Start salesperson login by sending a real email OTP.
+    """Start salesperson login by validating the invitation token and sending a real email OTP.
 
     Args:
-        request (SalespersonOtpRequest): Salesperson email payload.
+        request (SalespersonOtpRequest): Salesperson token and email payload.
 
     Returns:
         OtpSentResponse: OTP dispatch acknowledgement payload.
@@ -74,6 +74,7 @@ async def salesperson_request_otp(request: SalespersonOtpRequest) -> OtpSentResp
     try:
         logging.info("Calling POST /v1/auth/salesperson/request-otp endpoint")
         response = await AuthController().salesperson_request_otp(
+            invitation_token=request.invitation_token,
             email=request.email,
         )
         return OtpSentResponse(**response)

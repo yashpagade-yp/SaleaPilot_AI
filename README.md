@@ -18,18 +18,23 @@ The system uses:
 
 Help salespeople improve how they handle real customer conversations by practicing with AI-driven customer personas.
 
-## Current Auth Direction
+## Current Product Flow
 
-The product authentication flow now follows these rules:
+The current product flow now follows these rules:
 
 - `Admin` already exists in the backend database
 - admin logs in directly with `phone number + password`
 - admin does **not** use a mock OTP flow
+- admin lands on a dashboard-style admin workspace after login
 - admin sends an invitation to the salesperson's real email address
+- admin should manage salespeople from one place instead of jumping across separate screens
+- invitation email contains an invitation token string
+- salesperson first validates that invitation token on the login side
 - invitation allows that salesperson email to use the platform login flow
-- salesperson logs in with the invited email address
+- salesperson then logs in with the invited email address
 - system sends a real OTP to the salesperson email
 - salesperson completes login by entering the email OTP
+- salesperson-side UX may receive later flow refinements
 
 ## Fixed Training Personas
 
@@ -53,14 +58,26 @@ The `confused` persona is intentionally postponed for a later version to reduce 
 
 - user and session management
 - direct admin authentication
+- admin dashboard access management
 - salesperson invitation by email
 - salesperson email-OTP authentication
-- scenario selection for the four fixed personas
+- scenario selection for the three fixed personas
 - Eigi agent mapping and conversation metadata creation
 - Eigi `/v1/public/daily` session orchestration
 - Daily room/token delivery for frontend web call joining
 - conversation history retrieval
 - post-session feedback generation
+
+## Salesperson Workspace Direction
+
+The salesperson workspace should be organized around three connected sections:
+
+- `Agents`
+  The three training personas the salesperson can practice with.
+- `Conversations`
+  The salesperson's conversation records with a selected agent or persona.
+- `Feedback`
+  The salesperson's performance review, including summary, strengths, improvement areas, scores, and recommendations.
 
 ## Eigi Daily Conversation Flow
 
@@ -118,16 +135,45 @@ This means the system should store and use:
 
 - admin record is pre-created in the database
 - admin logs in using phone number and password
-- admin opens the invitation area after successful login
-- admin sends an invitation to the salesperson email
+- admin reaches the `Admin Dashboard` after successful login
+- admin uses the same dashboard to:
+  - send invitations
+  - view salesperson records
+  - review status such as invited, active, or inactive
+  - manage access-related actions over time
 
 ### Salesperson
 
 - salesperson receives the invitation email
-- salesperson logs in with the invited email address
+- salesperson copies the invitation token from the email
+- salesperson pastes that token into the invitation field on the login screen
+- system validates the invitation token
+- salesperson then logs in with the invited email address
 - system sends a real OTP to that email
 - salesperson enters OTP to complete login
-- salesperson accesses scenario selection, web calling, history, transcript, and feedback
+- salesperson accesses a workspace built around:
+  - agents
+  - conversations
+  - feedback
+- salesperson uses `Agents` to choose a training persona
+- salesperson uses `Conversations` to review call history and transcript
+- salesperson uses `Feedback` to review performance after each session
+- each salesperson can see only their own conversations and feedback
+- admins can review salesperson conversations and feedback from the admin side
+- one salesperson must never see another salesperson's conversations or feedback
+
+## Admin Dashboard Direction
+
+The admin experience should feel like a real management dashboard instead of a basic form page.
+
+The dashboard direction includes:
+
+- a clean sidebar or workspace navigation structure
+- a clear workspace access management header
+- an invite panel inside the dashboard
+- a salesperson list or table inside the dashboard
+- status visibility for invited and active users
+- room for future actions such as conversation review, activation control, and removal
 
 ## Runtime Direction For V1
 
