@@ -35,3 +35,14 @@ class FeedbackResponse(BaseModel):
         description="Optional raw feedback payload for traceability.",
     )
     created_at: datetime = Field(..., description="UTC timestamp when feedback was created.")
+
+
+class FeedbackListResponse(BaseModel):
+    """Response payload for listing feedback history."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[FeedbackResponse] = Field(..., description="Feedback history entries.")
+    page: int = Field(..., description="Current page number.")
+    page_size: int = Field(..., description="Number of items returned in the page.")
+    total: int = Field(..., description="Total matching feedback records.")

@@ -7,6 +7,7 @@ from commons.auth import decodeJWT
 from commons.logger import logger
 from core.apis.schemas.responses_schemas.feedback_response import FeedbackResponse
 from core.controller.feedback_controller import FeedbackController
+from core.cruds.training_session_crud import CRUDTrainingSession
 from core.cruds.user_crud import CRUDUser
 from core.models.user_model import UserRole
 
@@ -58,6 +59,39 @@ async def _require_salesperson(token: str):
     return user
 
 
+async def _require_salesperson_session_access(
+    *,
+    training_session_id: str,
+    salesperson_id: str,
+) -> None:
+    """Ensure one salesperson can access only their own feedback data.
+
+    Args:
+        training_session_id (str): Training session identifier being accessed.
+        salesperson_id (str): Authenticated salesperson user identifier.
+
+    Raises:
+        HTTPException: If the session does not exist or belongs to another salesperson.
+    """
+    training_session = await CRUDTrainingSession().get_by_id(id=training_session_id)
+    if training_session is None:
+        logging.warning(f"Feedback access requested for unknown session {training_session_id}")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Training session not found",
+        )
+
+    if training_session.user_id != salesperson_id:
+        logging.warning(
+            "Salesperson attempted feedback access for another user's session: "
+            f"{training_session_id}"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have access to this feedback",
+        )
+
+
 @feedback_router.get(
     "/{training_session_id}",
     status_code=status.HTTP_200_OK,
@@ -81,7 +115,11 @@ async def get_feedback_detail(
     """
     try:
         logging.info(f"Calling GET /v1/feedback/{training_session_id} endpoint")
-        await _require_salesperson(token=token)
+        user = await _require_salesperson(token=token)
+        await _require_salesperson_session_access(
+            training_session_id=training_session_id,
+            salesperson_id=str(user.id),
+        )
         response = await FeedbackController().get_feedback_detail(
             training_session_id=training_session_id
         )
@@ -122,7 +160,11 @@ async def generate_feedback(
     """
     try:
         logging.info(f"Calling POST /v1/feedback/{training_session_id}/generate endpoint")
-        await _require_salesperson(token=token)
+        user = await _require_salesperson(token=token)
+        await _require_salesperson_session_access(
+            training_session_id=training_session_id,
+            salesperson_id=str(user.id),
+        )
         response = await FeedbackController().generate_feedback(
             training_session_id=training_session_id
         )

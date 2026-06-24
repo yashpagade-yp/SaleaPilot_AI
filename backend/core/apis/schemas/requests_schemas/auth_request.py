@@ -25,6 +25,11 @@ class SalespersonOtpRequest(BaseModel):
 
     model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
 
+    invitation_token: str = Field(
+        ...,
+        min_length=16,
+        description="Invitation token copied from the salesperson invitation email.",
+    )
     email: EmailStr = Field(
         ...,
         description="Invited salesperson email used for OTP delivery.",

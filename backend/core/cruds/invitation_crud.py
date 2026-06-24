@@ -173,3 +173,28 @@ class CRUDInvitation:
         except Exception as error:
             logging.error(f"Error in CRUDInvitation.update: {error}")
             raise error
+
+    async def delete_by_email(self, *, email: str) -> int:
+        """Delete all invitation records associated with one email address.
+
+        Args:
+            email (str): Invited salesperson email address.
+
+        Returns:
+            int: Number of deleted invitation records.
+
+        Raises:
+            Exception: If the database delete fails.
+        """
+        try:
+            logging.info("Executing CRUDInvitation.delete_by_email")
+            invitations = await self.list_by_email(email=email)
+            deleted_count = 0
+            for invitation in invitations:
+                await get_engine().delete(invitation)
+                deleted_count += 1
+
+            return deleted_count
+        except Exception as error:
+            logging.error(f"Error in CRUDInvitation.delete_by_email: {error}")
+            raise error

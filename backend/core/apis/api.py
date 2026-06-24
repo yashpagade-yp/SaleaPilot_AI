@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from commons.logger import logger
+from core.apis.routers.admin_router import admin_router
 from core.apis.routers.auth_router import auth_router
 from core.apis.routers.conversation_router import conversation_router
 from core.apis.routers.feedback_router import feedback_router
@@ -60,6 +61,7 @@ app.add_middleware(
 )
 app.include_router(system_router)
 app.include_router(auth_router)
+app.include_router(admin_router)
 app.include_router(invitation_router)
 app.include_router(scenario_router)
 app.include_router(training_session_router)
