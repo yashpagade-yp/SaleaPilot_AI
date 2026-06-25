@@ -53,6 +53,46 @@ class SalespersonVerifyOtpRequest(BaseModel):
     )
 
 
+class SalespersonCompleteProfileRequest(BaseModel):
+    """Request payload for completing salesperson onboarding after invitation acceptance."""
+
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+
+    invitation_token: str = Field(
+        ...,
+        min_length=16,
+        description="Invitation token copied from the invitation email.",
+    )
+    email: EmailStr = Field(
+        ...,
+        description="Invited salesperson email address used for OTP delivery.",
+    )
+    first_name: str = Field(
+        ...,
+        min_length=2,
+        max_length=50,
+        description="First name entered by the invited salesperson.",
+    )
+    last_name: str = Field(
+        ...,
+        min_length=2,
+        max_length=50,
+        description="Last name entered by the invited salesperson.",
+    )
+    otp: str = Field(
+        ...,
+        min_length=4,
+        max_length=8,
+        description="OTP code received by email.",
+    )
+    password: str = Field(
+        ...,
+        min_length=8,
+        max_length=128,
+        description="Password created by the invited salesperson.",
+    )
+
+
 class ResetPasswordRequest(BaseModel):
     """Request payload for initiating a password reset."""
 

@@ -33,15 +33,15 @@ This file captures the current end-to-end product flow in simple, product-level 
 ## Salesperson Flow
 
 1. Salesperson receives the invitation email.
-2. Salesperson copies the invitation token string from that email.
-3. Salesperson opens the platform login screen.
-4. Salesperson pastes the invitation token into the invitation field.
-5. System validates that invitation token.
-6. If the token is valid, salesperson enters the invited email address.
+2. Salesperson clicks the accept-invitation link or button in that email.
+3. System opens the accept-invitation page directly.
+4. The invited email address and invitation code are already present or prefilled on that page.
+5. System validates the invitation code.
+6. If the invitation code is valid, salesperson continues to the login step with the invited email.
 7. System sends a real OTP to that salesperson email.
 8. Salesperson enters the OTP and logs in successfully.
 9. Invitation status becomes `ACCEPTED` once the salesperson completes the verified login path.
-10. Salesperson enters a workspace organized around three connected areas:
+10. Salesperson reaches a dashboard-style workspace organized around three connected areas:
    - `Agents`
    - `Conversations`
    - `Feedback`
@@ -96,7 +96,8 @@ This file captures the current end-to-end product flow in simple, product-level 
 - Only admin can send invitations.
 - Invitation flow should live inside the admin dashboard, not as a disconnected page.
 - Invitation is tied to the salesperson email that admin entered.
-- Salesperson must validate the invitation token before requesting the email OTP.
+- Salesperson should reach the invitation validation step from the invitation email link.
+- Invitation code and invited email should be available on the accept-invitation page.
 - Only invited salespeople can access training.
 - Salesperson login uses a real OTP sent to the invited email.
 - Only salesperson can start a training session.

@@ -31,6 +31,7 @@ class ScenarioController:
             "key": scenario.key,
             "title": scenario.title,
             "description": scenario.description,
+            "agent_id": scenario.agent_id,
             "is_active": scenario.is_active,
             "sort_order": scenario.sort_order,
         }

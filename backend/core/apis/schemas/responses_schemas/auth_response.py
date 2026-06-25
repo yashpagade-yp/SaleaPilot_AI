@@ -30,6 +30,14 @@ class OtpSentResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     message: str = Field(..., description="Human-readable OTP dispatch result.")
+    delivery_channel: str = Field(
+        default="email",
+        description="Delivery channel used for the OTP handoff.",
+    )
+    dev_otp: str | None = Field(
+        default=None,
+        description="Development-only OTP preview returned outside production.",
+    )
 
 
 class LoginResponse(BaseModel):

@@ -6,6 +6,7 @@ from commons.logger import logger
 from core.apis.schemas.requests_schemas.auth_request import (
     AdminLoginRequest,
     ResetPasswordRequest,
+    SalespersonCompleteProfileRequest,
     SalespersonOtpRequest,
     SalespersonVerifyOtpRequest,
 )
@@ -129,6 +130,52 @@ async def salesperson_verify_otp(
     except Exception as error:
         logging.error(
             f"Error in POST /v1/auth/salesperson/verify-otp endpoint: {error}"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal Server Error",
+        )
+
+
+@auth_router.post(
+    "/salesperson/complete-profile",
+    status_code=status.HTTP_200_OK,
+    response_model=LoginResponse,
+)
+async def salesperson_complete_profile(
+    request: SalespersonCompleteProfileRequest,
+) -> LoginResponse:
+    """Complete salesperson onboarding after invitation acceptance.
+
+    Args:
+        request (SalespersonCompleteProfileRequest): Salesperson onboarding payload.
+
+    Returns:
+        LoginResponse: Auth success payload with token and user profile.
+
+    Raises:
+        HTTPException: If the invitation, OTP, or profile payload is invalid.
+    """
+    try:
+        logging.info("Calling POST /v1/auth/salesperson/complete-profile endpoint")
+        response = await AuthController().salesperson_complete_profile(
+            invitation_token=request.invitation_token,
+            email=request.email,
+            first_name=request.first_name,
+            last_name=request.last_name,
+            otp=request.otp,
+            password=request.password,
+        )
+        return LoginResponse(**response)
+    except HTTPException as httperror:
+        logging.error(
+            "Error in POST /v1/auth/salesperson/complete-profile endpoint: "
+            f"{httperror}"
+        )
+        raise httperror
+    except Exception as error:
+        logging.error(
+            f"Error in POST /v1/auth/salesperson/complete-profile endpoint: {error}"
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
