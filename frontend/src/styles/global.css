@@ -821,11 +821,17 @@ ul {
   gap: 18px;
 }
 
+.session-orb-panel.refined,
+.session-side-panel.refined {
+  min-height: 100%;
+}
+
 .voice-orb-shell {
   width: 300px;
   height: 300px;
   display: grid;
   place-items: center;
+  position: relative;
 }
 
 .voice-orb-shell.compact {
@@ -836,6 +842,23 @@ ul {
 .voice-orb-shell.stage {
   width: 380px;
   height: 380px;
+}
+
+.voice-orb-shell.live {
+  margin-top: 12px;
+}
+
+.voice-orb-shell.is-speaking .voice-orb {
+  animation: orb-breathe 1800ms ease-in-out infinite;
+}
+
+.voice-orb-shell.is-speaking .voice-orb-ring {
+  opacity: 1;
+  animation: orb-ring 2200ms ease-out infinite;
+}
+
+.voice-orb-shell.is-idle .voice-orb-ring {
+  opacity: 0.35;
 }
 
 .voice-orb {
@@ -853,6 +876,20 @@ ul {
     0 24px 70px rgba(0, 0, 0, 0.48);
 }
 
+.voice-orb-ring {
+  position: absolute;
+  inset: 24px;
+  border-radius: 999px;
+  border: 1px solid rgba(216, 199, 180, 0.16);
+  pointer-events: none;
+}
+
+.voice-orb-ring.ring-two {
+  inset: -10px;
+  border-color: rgba(106, 140, 255, 0.14);
+  animation-delay: 900ms;
+}
+
 .voice-core {
   position: absolute;
   display: grid;
@@ -863,6 +900,23 @@ ul {
   background: rgba(14, 18, 21, 0.74);
   border: 1px solid rgba(255, 255, 255, 0.18);
   backdrop-filter: blur(12px);
+}
+
+.voice-core.detailed {
+  width: 118px;
+  height: 118px;
+  gap: 4px;
+  text-align: center;
+}
+
+.voice-core.detailed strong {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.voice-core.detailed span {
+  color: var(--muted);
+  font-size: 0.86rem;
 }
 
 .toggle-row {
@@ -919,9 +973,38 @@ ul {
   max-width: 520px;
 }
 
+.session-copy.centered {
+  justify-items: center;
+}
+
 .session-copy span {
   color: var(--muted);
   line-height: 1.7;
+}
+
+.session-state-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  width: 100%;
+}
+
+.state-chip {
+  padding: 16px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.state-chip span {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--muted);
+}
+
+.state-chip strong {
+  display: block;
+  font-size: 1rem;
 }
 
 .empty-state {
@@ -996,6 +1079,10 @@ ul {
     height: 240px;
   }
 
+  .session-state-strip {
+    grid-template-columns: 1fr;
+  }
+
   .workspace-header,
   .session-header,
   .hero-panel,
@@ -1041,5 +1128,31 @@ ul {
   .room-frame-shell iframe {
     min-height: 560px;
     height: 560px;
+  }
+}
+
+@keyframes orb-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+    filter: saturate(120%);
+  }
+  50% {
+    transform: scale(1.04);
+    filter: saturate(132%);
+  }
+}
+
+@keyframes orb-ring {
+  0% {
+    transform: scale(0.92);
+    opacity: 0.05;
+  }
+  30% {
+    opacity: 0.3;
+  }
+  100% {
+    transform: scale(1.08);
+    opacity: 0;
   }
 }

@@ -4,35 +4,21 @@ import { useAuth } from "../../context/AuthContext";
 import { generateFeedback, syncConversation } from "../../lib/api/sales";
 import { clearActiveSession, loadActiveSession } from "../../lib/storage";
 
-function buildDailyLaunchUrl(
-  dailyRoom: string | null,
-  dailyToken: string | null,
-): string | null {
-  if (!dailyRoom) {
-    return null;
-  }
+type StudioMode = "voice" | "review";
+type ConversationState = "ready" | "active" | "paused";
 
-  if (!dailyToken) {
-    return dailyRoom;
-  }
-
-  const separator = dailyRoom.includes("?") ? "&" : "?";
-  return `${dailyRoom}${separator}t=${encodeURIComponent(dailyToken)}`;
+function scenarioLabel(value: string) {
+  return value.charAt(0).toUpperCase() + value.slice(1).toLowerCase();
 }
 
 export function SessionStudioPage() {
   const { token } = useAuth();
   const [activeSession, setActiveSession] = useState(() => loadActiveSession());
-  const [showEmbeddedRoom, setShowEmbeddedRoom] = useState(false);
+  const [mode, setMode] = useState<StudioMode>("voice");
+  const [conversationState, setConversationState] = useState<ConversationState>("ready");
   const [message, setMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const [busyAction, setBusyAction] = useState("");
-  const launchUrl = activeSession
-    ? buildDailyLaunchUrl(
-        activeSession.session.daily_room,
-        activeSession.session.daily_token,
-      )
-    : null;
 
   async function handleSync() {
     if (!token || !activeSession) {
@@ -45,7 +31,8 @@ export function SessionStudioPage() {
 
     try {
       await syncConversation(token, activeSession.session.session_id);
-      setMessage("Conversation sync completed. You can review it in Conversations.");
+      setMessage("Transcript synced. You can review it in Conversations.");
+      setMode("review");
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Unable to sync conversation.");
     } finally {
@@ -64,12 +51,26 @@ export function SessionStudioPage() {
 
     try {
       await generateFeedback(token, activeSession.session.session_id);
-      setMessage("Feedback generated. Review it in the Feedback section.");
+      setMessage("Feedback generated. Open the Feedback section to review it.");
+      setMode("review");
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Unable to generate feedback.");
     } finally {
       setBusyAction("");
     }
+  }
+
+  function handleStartConversation() {
+    setConversationState("active");
+    setMode("voice");
+    setMessage("Conversation surface is active. Stay inside the studio and continue the practice flow here.");
+    setErrorMessage("");
+  }
+
+  function handlePauseConversation() {
+    setConversationState("paused");
+    setMessage("Conversation paused. You can resume when you are ready.");
+    setErrorMessage("");
   }
 
   if (!activeSession) {
@@ -82,16 +83,17 @@ export function SessionStudioPage() {
     );
   }
 
+  const isActive = conversationState === "active";
+
   return (
     <main className="session-root">
       <section className="session-stage">
         <div className="session-header">
           <div>
-            <span className="eyebrow">Voice practice studio</span>
+            <span className="eyebrow">AI practice studio</span>
             <h1>{activeSession.scenarioTitle}</h1>
             <p>
-              This session surface is intentionally product-native and voice-first. It should feel
-              like a rehearsal tool, not a meeting grid.
+              This is the direct SalesPilot conversation surface. No meeting room, no exposed call grid, just the active persona and the actions around your practice flow.
             </p>
           </div>
           <Link className="button button-secondary" to="/workspace/agents">
@@ -103,58 +105,103 @@ export function SessionStudioPage() {
         {errorMessage ? <div className="message error">{errorMessage}</div> : null}
 
         <div className="session-grid">
-          <article className="panel session-orb-panel">
-            <div className="session-copy">
-              <strong>Meet the active persona where the conversation starts.</strong>
+          <article className="panel session-orb-panel refined">
+            <div className="session-copy centered">
+              <strong>Talk directly with the active persona.</strong>
               <span>
-                The voice room stays behind a secure launch step, while the surrounding interface
-                keeps the user inside the SalesPilot AI product experience.
+                The orb is now the live face of the session. It should feel like the agent is present inside SalesPilot, not inside a meeting tool.
               </span>
             </div>
-            <div className="voice-orb-shell stage">
+
+            <div className={`voice-orb-shell stage live ${isActive ? "is-speaking" : "is-idle"}`}>
+              <div className="voice-orb-ring ring-one" />
+              <div className="voice-orb-ring ring-two" />
               <div className="voice-orb" />
-              <div className="voice-core">Voice</div>
+              <div className="voice-core detailed">
+                <strong>{isActive ? "Listening" : conversationState === "paused" ? "Paused" : "Ready"}</strong>
+                <span>{mode === "voice" ? "Voice" : "Review"}</span>
+              </div>
             </div>
+
             <div className="toggle-row">
-              <span className="toggle-pill active">Voice</span>
-              <span className="toggle-pill">Review</span>
+              <button
+                className={mode === "voice" ? "toggle-pill active" : "toggle-pill"}
+                onClick={() => setMode("voice")}
+                type="button"
+              >
+                Voice
+              </button>
+              <button
+                className={mode === "review" ? "toggle-pill active" : "toggle-pill"}
+                onClick={() => setMode("review")}
+                type="button"
+              >
+                Review
+              </button>
+            </div>
+
+            <div className="session-state-strip">
+              <div className="state-chip">
+                <span>Persona</span>
+                <strong>{scenarioLabel(activeSession.scenarioKey)}</strong>
+              </div>
+              <div className="state-chip">
+                <span>Status</span>
+                <strong>{isActive ? "Live" : conversationState === "paused" ? "Paused" : "Ready"}</strong>
+              </div>
+              <div className="state-chip">
+                <span>Focus</span>
+                <strong>{mode === "voice" ? "Conversation" : "Review"}</strong>
+              </div>
             </div>
           </article>
 
-          <article className="panel session-side-panel">
-            <div className="detail-stack">
-              <div className="detail-item"><strong>Scenario key</strong><span>{activeSession.scenarioKey}</span></div>
-              <div className="detail-item"><strong>Training session</strong><span>{activeSession.session.session_id}</span></div>
-              <div className="detail-item"><strong>Conversation id</strong><span>{activeSession.session.conversation_id || "Will appear after launch"}</span></div>
+          <article className="panel session-side-panel refined">
+            <div className="detail-stack soft">
+              <div className="detail-item">
+                <strong>Current scenario</strong>
+                <span>{activeSession.scenarioTitle}</span>
+              </div>
+              <div className="detail-item">
+                <strong>Session mode</strong>
+                <span>{mode === "voice" ? "Live AI practice" : "Transcript and coaching actions"}</span>
+              </div>
+              <div className="detail-item">
+                <strong>Experience style</strong>
+                <span>Native SalesPilot conversation surface</span>
+              </div>
             </div>
+
             <div className="action-column">
-              {launchUrl ? (
-                <>
-                  <button
-                    className="button button-primary button-block"
-                    onClick={() => setShowEmbeddedRoom((current) => !current)}
-                    type="button"
-                  >
-                    {showEmbeddedRoom ? "Hide embedded room" : "Launch inside workspace"}
-                  </button>
-                  <a
-                    className="button button-secondary button-block"
-                    href={launchUrl}
-                    rel="noreferrer"
-                    target="_blank"
-                  >
-                    Open secure room in new tab
-                  </a>
-                </>
-              ) : (
-                <div className="empty-state">
-                  Daily room URL is not available yet for this session payload.
-                </div>
-              )}
-              <button className="button button-secondary button-block" disabled={busyAction === "sync"} onClick={() => void handleSync()} type="button">
+              <button
+                className="button button-primary button-block"
+                onClick={handleStartConversation}
+                type="button"
+              >
+                {isActive ? "Conversation in progress" : "Start conversation"}
+              </button>
+              <button
+                className="button button-secondary button-block"
+                disabled={!isActive}
+                onClick={handlePauseConversation}
+                type="button"
+              >
+                Pause conversation
+              </button>
+              <button
+                className="button button-secondary button-block"
+                disabled={busyAction === "sync"}
+                onClick={() => void handleSync()}
+                type="button"
+              >
                 {busyAction === "sync" ? "Syncing..." : "Sync transcript"}
               </button>
-              <button className="button button-secondary button-block" disabled={busyAction === "feedback"} onClick={() => void handleFeedback()} type="button">
+              <button
+                className="button button-secondary button-block"
+                disabled={busyAction === "feedback"}
+                onClick={() => void handleFeedback()}
+                type="button"
+              >
                 {busyAction === "feedback" ? "Generating..." : "Generate feedback"}
               </button>
               <button
@@ -162,8 +209,8 @@ export function SessionStudioPage() {
                 onClick={() => {
                   clearActiveSession();
                   setActiveSession(null);
-                  setShowEmbeddedRoom(false);
-                  setMessage("Staged session cleared.");
+                  setMessage("Session cleared from the studio.");
+                  setConversationState("ready");
                 }}
                 type="button"
               >
@@ -172,24 +219,6 @@ export function SessionStudioPage() {
             </div>
           </article>
         </div>
-
-        {showEmbeddedRoom && launchUrl ? (
-          <section className="panel embedded-room-panel">
-            <div className="panel-header">
-              <div>
-                <span className="eyebrow">Live room</span>
-                <h2>Stay inside the SalesPilot AI shell</h2>
-              </div>
-            </div>
-            <div className="room-frame-shell">
-              <iframe
-                allow="autoplay; camera; microphone; fullscreen; speaker-selection"
-                src={launchUrl}
-                title="SalesPilot AI voice room"
-              />
-            </div>
-          </section>
-        ) : null}
       </section>
     </main>
   );

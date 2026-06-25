@@ -170,3 +170,31 @@ class CRUDTrainingSession:
         except Exception as error:
             logging.error(f"Error in CRUDTrainingSession.update: {error}")
             raise error
+
+    async def delete_by_user_id(self, *, user_id: str) -> int:
+        """Delete training sessions created by one salesperson.
+
+        Args:
+            user_id (str): Salesperson user identifier.
+
+        Returns:
+            int: Number of deleted training-session records.
+
+        Raises:
+            Exception: If the database delete fails.
+        """
+        try:
+            logging.info("Executing CRUDTrainingSession.delete_by_user_id")
+            training_sessions = await get_engine().find(
+                TrainingSession,
+                TrainingSession.user_id == user_id,
+            )
+            deleted_count = 0
+            for training_session in training_sessions:
+                await get_engine().delete(training_session)
+                deleted_count += 1
+
+            return deleted_count
+        except Exception as error:
+            logging.error(f"Error in CRUDTrainingSession.delete_by_user_id: {error}")
+            raise error

@@ -207,8 +207,6 @@ class User(Model):
             ValueError: If role-specific required fields are missing.
         """
         if self.role == UserRole.ADMIN:
-            if not self.phone_number:
-                raise ValueError("Admin users must have a phone_number.")
             if not self.password_hash:
                 raise ValueError("Admin users must have a password_hash.")
 

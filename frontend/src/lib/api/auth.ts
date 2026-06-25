@@ -6,10 +6,34 @@ import {
 } from "../../types/models";
 
 export function adminLogin(payload: {
-  phone_number: string;
+  email: string;
   password: string;
 }) {
-  return apiRequest<LoginResponse>("/v1/auth/admin/login", {
+  return apiRequest<OtpSentResponse>("/v1/auth/admin/login", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function verifyAdminOtp(payload: { email: string; otp: string }) {
+  return apiRequest<LoginResponse>("/v1/auth/admin/verify-otp", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function login(payload: {
+  email: string;
+  password: string;
+}) {
+  return apiRequest<OtpSentResponse>("/v1/auth/login", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function verifyOtp(payload: { email: string; otp: string }) {
+  return apiRequest<LoginResponse>("/v1/auth/verify-otp", {
     method: "POST",
     body: JSON.stringify(payload),
   });
@@ -27,6 +51,16 @@ export function requestSalespersonOtp(payload: {
   email: string;
 }) {
   return apiRequest<OtpSentResponse>("/v1/auth/salesperson/request-otp", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function salespersonLogin(payload: {
+  email: string;
+  password: string;
+}) {
+  return apiRequest<OtpSentResponse>("/v1/auth/salesperson/login", {
     method: "POST",
     body: JSON.stringify(payload),
   });

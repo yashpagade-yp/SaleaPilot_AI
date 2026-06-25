@@ -5,10 +5,14 @@ from fastapi import APIRouter, HTTPException, status
 from commons.logger import logger
 from core.apis.schemas.requests_schemas.auth_request import (
     AdminLoginRequest,
+    AdminVerifyOtpRequest,
+    LoginRequest,
     ResetPasswordRequest,
     SalespersonCompleteProfileRequest,
+    SalespersonLoginRequest,
     SalespersonOtpRequest,
     SalespersonVerifyOtpRequest,
+    VerifyOtpRequest,
 )
 from core.apis.schemas.responses_schemas.auth_response import (
     LoginResponse,
@@ -21,18 +25,88 @@ logging = logger(__name__)
 
 
 @auth_router.post(
-    "/admin/login",
+    "/login",
+    status_code=status.HTTP_200_OK,
+    response_model=OtpSentResponse,
+)
+async def login(request: LoginRequest) -> OtpSentResponse:
+    """Validate unified user email/password and send a real email OTP.
+
+    Args:
+        request (LoginRequest): User login payload with email and password.
+
+    Returns:
+        OtpSentResponse: OTP dispatch acknowledgement payload.
+
+    Raises:
+        HTTPException: If the credentials are invalid or the request fails.
+    """
+    try:
+        logging.info("Calling POST /v1/auth/login endpoint")
+        response = await AuthController().login(
+            email=request.email,
+            password=request.password,
+        )
+        return OtpSentResponse(**response)
+    except HTTPException as httperror:
+        logging.error(f"Error in POST /v1/auth/login endpoint: {httperror}")
+        raise httperror
+    except Exception as error:
+        logging.error(f"Error in POST /v1/auth/login endpoint: {error}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal Server Error",
+        )
+
+
+@auth_router.post(
+    "/verify-otp",
     status_code=status.HTTP_200_OK,
     response_model=LoginResponse,
 )
-async def admin_login(request: AdminLoginRequest) -> LoginResponse:
-    """Authenticate an admin directly with phone number and password.
+async def verify_otp(request: VerifyOtpRequest) -> LoginResponse:
+    """Verify unified user OTP and complete login.
 
     Args:
-        request (AdminLoginRequest): Admin login payload with phone and password.
+        request (VerifyOtpRequest): User OTP verification payload.
 
     Returns:
         LoginResponse: Auth success payload with token and user profile.
+
+    Raises:
+        HTTPException: If the OTP or user state is invalid.
+    """
+    try:
+        logging.info("Calling POST /v1/auth/verify-otp endpoint")
+        response = await AuthController().verify_otp(
+            email=request.email,
+            otp=request.otp,
+        )
+        return LoginResponse(**response)
+    except HTTPException as httperror:
+        logging.error(f"Error in POST /v1/auth/verify-otp endpoint: {httperror}")
+        raise httperror
+    except Exception as error:
+        logging.error(f"Error in POST /v1/auth/verify-otp endpoint: {error}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal Server Error",
+        )
+
+
+@auth_router.post(
+    "/admin/login",
+    status_code=status.HTTP_200_OK,
+    response_model=OtpSentResponse,
+)
+async def admin_login(request: AdminLoginRequest) -> OtpSentResponse:
+    """Validate admin email/password and send a real email OTP.
+
+    Args:
+        request (AdminLoginRequest): Admin login payload with email and password.
+
+    Returns:
+        OtpSentResponse: OTP dispatch acknowledgement payload.
 
     Raises:
         HTTPException: If the credentials are invalid or the request fails.
@@ -40,10 +114,10 @@ async def admin_login(request: AdminLoginRequest) -> LoginResponse:
     try:
         logging.info("Calling POST /v1/auth/admin/login endpoint")
         response = await AuthController().admin_login(
-            phone_number=request.phone_number,
+            email=request.email,
             password=request.password,
         )
-        return LoginResponse(**response)
+        return OtpSentResponse(**response)
     except HTTPException as httperror:
         logging.error(f"Error in POST /v1/auth/admin/login endpoint: {httperror}")
         raise httperror
@@ -56,12 +130,92 @@ async def admin_login(request: AdminLoginRequest) -> LoginResponse:
 
 
 @auth_router.post(
+    "/admin/verify-otp",
+    status_code=status.HTTP_200_OK,
+    response_model=LoginResponse,
+)
+async def admin_verify_otp(request: AdminVerifyOtpRequest) -> LoginResponse:
+    """Verify admin OTP and complete admin login.
+
+    Args:
+        request (AdminVerifyOtpRequest): Admin OTP verification payload.
+
+    Returns:
+        LoginResponse: Auth success payload with token and user profile.
+
+    Raises:
+        HTTPException: If the OTP or user state is invalid.
+    """
+    try:
+        logging.info("Calling POST /v1/auth/admin/verify-otp endpoint")
+        response = await AuthController().verify_admin_otp(
+            email=request.email,
+            otp=request.otp,
+        )
+        return LoginResponse(**response)
+    except HTTPException as httperror:
+        logging.error(
+            "Error in POST /v1/auth/admin/verify-otp endpoint: "
+            f"{httperror}"
+        )
+        raise httperror
+    except Exception as error:
+        logging.error(
+            f"Error in POST /v1/auth/admin/verify-otp endpoint: {error}"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal Server Error",
+        )
+
+
+@auth_router.post(
+    "/salesperson/login",
+    status_code=status.HTTP_200_OK,
+    response_model=OtpSentResponse,
+)
+async def salesperson_login(request: SalespersonLoginRequest) -> OtpSentResponse:
+    """Validate returning salesperson email/password and send a real email OTP.
+
+    Args:
+        request (SalespersonLoginRequest): Salesperson login payload with email and password.
+
+    Returns:
+        OtpSentResponse: OTP dispatch acknowledgement payload.
+
+    Raises:
+        HTTPException: If the credentials are invalid or the request fails.
+    """
+    try:
+        logging.info("Calling POST /v1/auth/salesperson/login endpoint")
+        response = await AuthController().salesperson_login(
+            email=request.email,
+            password=request.password,
+        )
+        return OtpSentResponse(**response)
+    except HTTPException as httperror:
+        logging.error(
+            "Error in POST /v1/auth/salesperson/login endpoint: "
+            f"{httperror}"
+        )
+        raise httperror
+    except Exception as error:
+        logging.error(
+            f"Error in POST /v1/auth/salesperson/login endpoint: {error}"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal Server Error",
+        )
+
+
+@auth_router.post(
     "/salesperson/request-otp",
     status_code=status.HTTP_200_OK,
     response_model=OtpSentResponse,
 )
 async def salesperson_request_otp(request: SalespersonOtpRequest) -> OtpSentResponse:
-    """Start salesperson login by validating the invitation token and sending a real email OTP.
+    """Start invitation-based salesperson onboarding with a real email OTP.
 
     Args:
         request (SalespersonOtpRequest): Salesperson token and email payload.

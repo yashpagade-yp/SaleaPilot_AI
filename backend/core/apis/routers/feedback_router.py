@@ -13,7 +13,7 @@ from core.models.user_model import UserRole
 
 feedback_router = APIRouter(prefix="/v1/feedback", tags=["feedback"])
 logging = logger(__name__)
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/v1/auth/salesperson/verify-otp")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/v1/auth/verify-otp")
 
 
 async def _require_salesperson(token: str):
