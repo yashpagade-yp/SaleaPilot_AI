@@ -28,8 +28,8 @@ The current product flow now follows these rules:
 - admin lands on a dashboard-style admin workspace after login
 - admin sends an invitation to the salesperson's real email address
 - admin should manage salespeople from one place instead of jumping across separate screens
-- invitation email contains an invitation token string
-- salesperson first validates that invitation token on the login side
+- invitation email should contain an accept-invitation link or button
+- invitation page should open with invited email and invitation code already available
 - invitation allows that salesperson email to use the platform login flow
 - salesperson then logs in with the invited email address
 - system sends a real OTP to the salesperson email
@@ -145,9 +145,10 @@ This means the system should store and use:
 ### Salesperson
 
 - salesperson receives the invitation email
-- salesperson copies the invitation token from the email
-- salesperson pastes that token into the invitation field on the login screen
-- system validates the invitation token
+- salesperson clicks the accept-invitation link or button from the email
+- salesperson reaches the accept-invitation page
+- invited email and invitation code are already present or prefilled there
+- system validates the invitation code
 - salesperson then logs in with the invited email address
 - system sends a real OTP to that email
 - salesperson enters OTP to complete login
@@ -185,6 +186,37 @@ For the first version, the live training call should use:
 
 This means we do not need a separate Pipecat-based runtime for the core `v1`
 voice flow if Eigi is already handling the agent runtime for these sessions.
+
+## Gmail Email Setup
+
+Invitation and OTP emails now use async Gmail SMTP with HTML and plain-text
+templates.
+
+1. Copy `backend/.env.example` to `backend/.env`.
+2. Set `gmail_user` to your Gmail address.
+3. Set `gmail_app_password` to your 16-character Gmail App Password.
+4. Set `FRONTEND_BASE_URL` to the frontend app URL that should open from the
+   invitation email. For local development use `http://localhost:5173`.
+5. Optionally set:
+   - `company_name`
+   - `support_email`
+   - `logo_url`
+6. Restart the backend server after updating the environment file.
+
+How to get a Gmail App Password:
+
+1. Enable 2-Step Verification on your Google account.
+2. Go to `Google Account -> Security -> App Passwords`.
+3. Generate a password for `Mail` on `Other device`.
+4. Paste that 16-character password into `gmail_app_password`.
+
+Notes:
+
+- Invitation emails and OTP emails are both sent through the same Gmail async
+  helper.
+- In non-production environments, the frontend still shows a development
+  preview of the invitation code and OTP so local testing is not blocked if
+  mailbox delivery is delayed.
 
 ## Planned Backend Modules
 

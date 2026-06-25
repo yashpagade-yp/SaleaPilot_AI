@@ -1,12 +1,14 @@
 export type UserRole = "ADMIN" | "SALESPERSON";
 
+export type AuthTab = "admin" | "salesperson";
+
 export interface UserProfile {
   id: string;
   first_name: string;
   last_name: string;
   email: string;
   phone_number: string | null;
-  role: UserRole;
+  role: UserRole | string;
   is_active: boolean;
 }
 
@@ -17,8 +19,17 @@ export interface LoginResponse {
   last_login_at: string | null;
 }
 
-export interface MessageResponse {
+export interface OtpSentResponse {
   message: string;
+  delivery_channel: string;
+  dev_otp: string | null;
+}
+
+export interface InvitationAcceptResponse {
+  message: string;
+  email: string;
+  status: string;
+  next_step: string;
 }
 
 export interface InvitationResponse {
@@ -26,42 +37,27 @@ export interface InvitationResponse {
   email: string;
   first_name: string;
   last_name: string;
-  role: UserRole;
+  role: string;
   status: string;
   invited_by: string;
   expires_at: string;
   accepted_at: string | null;
-}
-
-export interface InvitationAcceptResponse extends MessageResponse {
-  email: string;
-  status: string;
-  next_step: string;
+  delivery_channel: string;
+  dev_invitation_token: string | null;
 }
 
 export interface Scenario {
   id: string;
-  key: "IDEAL" | "RUDE" | "BUSY" | string;
+  key: string;
   title: string;
   description: string;
+  agent_id: string;
   is_active: boolean;
   sort_order: number;
 }
 
 export interface ScenarioListResponse {
   items: Scenario[];
-}
-
-export interface TrainingSessionSummary {
-  id: string;
-  user_id: string;
-  scenario_id: string;
-  scenario_key: string;
-  agent_id: string;
-  status: string;
-  conversation_id: string | null;
-  started_at: string | null;
-  ended_at: string | null;
 }
 
 export interface StartTrainingSessionResponse {
@@ -73,7 +69,19 @@ export interface StartTrainingSessionResponse {
   status: string;
 }
 
-export interface ConversationRecord {
+export interface TrainingSession {
+  id: string;
+  user_id: string;
+  scenario_id: string;
+  scenario_key: string;
+  agent_id: string;
+  status: string;
+  conversation_id: string | null;
+  started_at: string | null;
+  ended_at: string | null;
+}
+
+export interface Conversation {
   id: string;
   training_session_id: string;
   conversation_id: string;
@@ -87,13 +95,13 @@ export interface ConversationRecord {
 }
 
 export interface ConversationListResponse {
-  items: ConversationRecord[];
+  items: Conversation[];
   page: number;
   page_size: number;
   total: number;
 }
 
-export interface FeedbackRecord {
+export interface Feedback {
   id: string;
   training_session_id: string;
   user_id: string;
@@ -111,7 +119,39 @@ export interface FeedbackRecord {
   created_at: string;
 }
 
-export interface ApiErrorShape {
-  detail?: string;
-  message?: string;
+export interface FeedbackListResponse {
+  items: Feedback[];
+  page: number;
+  page_size: number;
+  total: number;
+}
+
+export interface AdminSalesperson {
+  id: string;
+  first_name: string;
+  last_name: string;
+  email: string;
+  phone_number: string | null;
+  role: string;
+  is_active: boolean;
+  status: string;
+  last_login_at: string | null;
+  updated_at: string;
+  latest_invitation_sent_at: string | null;
+  latest_invitation_expires_at: string | null;
+  latest_invitation_status: string | null;
+}
+
+export interface AdminSalespeopleResponse {
+  items: AdminSalesperson[];
+}
+
+export interface AdminMessageResponse {
+  message: string;
+}
+
+export interface ActiveSessionState {
+  scenarioKey: string;
+  scenarioTitle: string;
+  session: StartTrainingSessionResponse;
 }

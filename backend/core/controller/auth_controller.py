@@ -1,11 +1,14 @@
 """Controller logic for authentication-related workflows."""
 
 from datetime import datetime, timedelta, timezone
-import smtplib
+from os import getenv
+import re
+import secrets
 
 from fastapi import HTTPException, status
 
 from commons.auth import (
+    encrypt_password,
     generate_otp,
     hash_otp,
     signJWT,
@@ -18,7 +21,8 @@ from core.cruds.user_crud import CRUDUser
 from core.database.database import get_utc_now
 from core.models.invitation_model import InvitationStatus
 from core.models.user_model import OtpPurpose, UserRole
-from core.services.email_service import EmailService
+from core.services.email_helper import EmailDeliveryError, send_email
+from core.services.email_template_generator import build_salesperson_otp_email
 
 logging = logger(__name__)
 
@@ -30,7 +34,6 @@ class AuthController:
         """Initialize CRUD dependencies for auth workflows."""
         self.crud_user = CRUDUser()
         self.crud_invitation = CRUDInvitation()
-        self.email_service = EmailService()
 
     @staticmethod
     def _serialize_user_profile(user) -> dict:
@@ -65,6 +68,103 @@ class AuthController:
         if value.tzinfo is None:
             return value.replace(tzinfo=timezone.utc)
         return value.astimezone(timezone.utc)
+
+    @staticmethod
+    def _should_expose_dev_delivery_preview() -> bool:
+        """Decide whether development-only OTP previews may be returned.
+
+        Returns:
+            bool: True when the app is outside production.
+        """
+        app_env = getenv("APP_ENV", "development").strip().lower()
+        return app_env != "production"
+
+    @staticmethod
+    def _generate_placeholder_phone_number() -> str:
+        """Generate a unique placeholder phone number for invited salespeople.
+
+        Returns:
+            str: Random numeric placeholder value.
+        """
+        return f"9{secrets.randbelow(10**17):017d}"
+
+    @staticmethod
+    def _derive_name_parts_from_email(email: str) -> tuple[str, str]:
+        """Derive safe fallback name parts from an email address.
+
+        Args:
+            email (str): Invited salesperson email address.
+
+        Returns:
+            tuple[str, str]: First and last name placeholders for persistence.
+        """
+        local_part = email.split("@", maxsplit=1)[0]
+        tokens = [
+            token.capitalize()
+            for token in re.split(r"[^A-Za-z0-9]+", local_part)
+            if token
+        ]
+
+        if len(tokens) >= 2:
+            return tokens[0][:50], " ".join(tokens[1:])[:50]
+
+        if len(tokens) == 1:
+            first_name = tokens[0][:50]
+            if len(first_name) < 2:
+                first_name = f"{first_name}x"
+            return first_name, "Salesperson"
+
+        return "Sales", "Person"
+
+    async def _ensure_salesperson_user_for_invitation(self, *, invitation):
+        """Return a salesperson user for an invitation, creating one if missing.
+
+        This keeps legacy invitation records usable even if they were created
+        before placeholder salesperson users were stored at invite time.
+
+        Args:
+            invitation: Valid invitation model instance.
+
+        Returns:
+            User: Matching or newly created salesperson user record.
+
+        Raises:
+            HTTPException: If the invitation cannot map to a salesperson account.
+        """
+        user = await self.crud_user.get_by_email(email=invitation.email)
+        if user is not None:
+            if user.role != UserRole.SALESPERSON:
+                logging.warning(
+                    f"Invitation email belongs to a non-salesperson user: {invitation.email}"
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Invitation email does not belong to a salesperson account",
+                )
+            return user
+
+        fallback_first_name, fallback_last_name = self._derive_name_parts_from_email(
+            invitation.email
+        )
+        created_user = await self.crud_user.create(
+            obj_in={
+                "first_name": invitation.first_name or fallback_first_name,
+                "last_name": invitation.last_name or fallback_last_name,
+                "email": invitation.email,
+                "phone_number": self._generate_placeholder_phone_number(),
+                "password_hash": encrypt_password(secrets.token_urlsafe(32)),
+                "role": UserRole.SALESPERSON,
+                "is_active": False,
+                "auth_metadata": {
+                    "invited_via_email": True,
+                    "placeholder_created_from_invitation": True,
+                },
+            }
+        )
+        logging.info(
+            f"Created missing salesperson placeholder account for invitation email {invitation.email}"
+        )
+        return created_user
 
     async def _get_latest_pending_invitation(self, *, email: str):
         """Return the latest pending invitation for one salesperson email.
@@ -264,17 +364,13 @@ class AuthController:
         """
         try:
             logging.info("Executing AuthController.salesperson_request_otp")
-            await self._get_valid_invitation_for_token(
+            invitation = await self._get_valid_invitation_for_token(
                 token=invitation_token,
                 email=email,
             )
-            user = await self.crud_user.get_by_email(email=email)
-            if user is None or user.role != UserRole.SALESPERSON:
-                logging.warning(f"Salesperson user not found for email {email}")
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail="No invited salesperson account found for this email",
-                )
+            user = await self._ensure_salesperson_user_for_invitation(
+                invitation=invitation
+            )
 
             pending_invitation = await self._get_latest_pending_invitation(email=email)
             if pending_invitation is not None and self._as_utc(pending_invitation.expires_at) < get_utc_now():
@@ -313,22 +409,30 @@ class AuthController:
                     detail="Failed to create OTP challenge",
                 )
 
-            self.email_service.send_email(
+            email_template = build_salesperson_otp_email(
+                name=user.first_name,
+                otp=otp,
+            )
+            await send_email(
+                subject=email_template["subject"],
                 to_email=email,
-                subject="SalesPilot AI Login OTP",
-                body=(
-                    "Your SalesPilot AI login OTP is:\n\n"
-                    f"{otp}\n\n"
-                    "This OTP expires in 10 minutes."
-                ),
+                text=email_template["text"],
+                html=email_template["html"],
             )
 
             return {
-                "message": "Invitation token verified. OTP sent successfully to salesperson email",
+                "message": (
+                    "Invitation token verified. OTP generated for the invited "
+                    "email address. Check the inbox or spam folder."
+                ),
+                "delivery_channel": "email",
+                "dev_otp": (
+                    otp if self._should_expose_dev_delivery_preview() else None
+                ),
             }
         except HTTPException:
             raise
-        except smtplib.SMTPException as error:
+        except EmailDeliveryError as error:
             logging.error(
                 f"Error in AuthController.salesperson_request_otp email send: {error}"
             )
@@ -451,6 +555,130 @@ class AuthController:
             raise
         except Exception as error:
             logging.error(f"Error in AuthController.salesperson_verify_otp: {error}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Internal Server Error",
+            )
+
+    async def salesperson_complete_profile(
+        self,
+        *,
+        invitation_token: str,
+        email: str,
+        first_name: str,
+        last_name: str,
+        otp: str,
+        password: str,
+    ) -> dict:
+        """Complete salesperson onboarding after invitation acceptance.
+
+        Verifies the invitation token and OTP, stores the salesperson profile
+        details, saves a real password, activates the account, and returns the
+        signed login response for the new workspace session.
+
+        Args:
+            invitation_token (str): Invitation token copied from the invitation email.
+            email (str): Invited salesperson email address.
+            first_name (str): Salesperson first name entered during onboarding.
+            last_name (str): Salesperson last name entered during onboarding.
+            otp (str): OTP value sent to the invited email.
+            password (str): Newly created salesperson password.
+
+        Returns:
+            dict: Auth success payload with JWT and user profile.
+
+        Raises:
+            HTTPException: If the invitation, OTP, or salesperson state is invalid.
+        """
+        try:
+            logging.info("Executing AuthController.salesperson_complete_profile")
+            invitation = await self._get_valid_invitation_for_token(
+                token=invitation_token,
+                email=email,
+            )
+            user = await self._ensure_salesperson_user_for_invitation(
+                invitation=invitation
+            )
+
+            if user.otp is None or user.otp.purpose != OtpPurpose.SALESPERSON_LOGIN:
+                logging.warning(f"No active salesperson OTP found for {email}")
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="No active OTP found for this email",
+                )
+
+            if self._as_utc(user.otp.expires_at) < get_utc_now():
+                logging.warning(f"Expired salesperson OTP attempted for {email}")
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="OTP has expired",
+                )
+
+            if not verify_hashed_otp(otp, user.otp.code_hash):
+                attempt_count = min(user.otp.attempt_count + 1, 5)
+                await self.crud_user.update(
+                    id=str(user.id),
+                    obj_in={
+                        "otp": {
+                            "code_hash": user.otp.code_hash,
+                            "purpose": user.otp.purpose,
+                            "expires_at": user.otp.expires_at,
+                            "requested_at": user.otp.requested_at,
+                            "attempt_count": attempt_count,
+                            "attempt_window_started_at": user.otp.attempt_window_started_at,
+                        }
+                    },
+                )
+                logging.warning(f"Invalid salesperson OTP attempt for {email}")
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Invalid OTP",
+                )
+
+            updated_user = await self.crud_user.update(
+                id=str(user.id),
+                obj_in={
+                    "first_name": first_name,
+                    "last_name": last_name,
+                    "password_hash": encrypt_password(password),
+                    "otp": None,
+                    "is_active": True,
+                    "last_login_at": get_utc_now(),
+                    "auth_metadata": {
+                        **(user.auth_metadata or {}),
+                        "invited_via_email": True,
+                        "profile_completed_at": get_utc_now().isoformat(),
+                    },
+                },
+            )
+            if updated_user is None:
+                logging.error(f"Failed to complete salesperson profile for {email}")
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Failed to complete salesperson profile",
+                )
+
+            if invitation.status == InvitationStatus.PENDING:
+                await self.crud_invitation.update(
+                    id=str(invitation.id),
+                    obj_in={
+                        "status": InvitationStatus.ACCEPTED,
+                        "accepted_at": get_utc_now(),
+                        "first_name": first_name,
+                        "last_name": last_name,
+                    },
+                )
+
+            return {
+                "access_token": signJWT(user_role=updated_user.role, id=str(updated_user.id)),
+                "token_type": "bearer",
+                "user": self._serialize_user_profile(updated_user),
+                "last_login_at": updated_user.last_login_at,
+            }
+        except HTTPException:
+            raise
+        except Exception as error:
+            logging.error(f"Error in AuthController.salesperson_complete_profile: {error}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Internal Server Error",

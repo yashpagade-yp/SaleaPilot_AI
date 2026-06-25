@@ -20,6 +20,18 @@ logging = logger(__name__)
 post_session_service = PostSessionAutomationService()
 
 
+def build_dev_cors_origin_regex() -> str:
+    """Return a local-development CORS origin regex.
+
+    Allows localhost and loopback frontend origins on any explicit port so
+    Vite dev servers can move between ports without breaking preflight checks.
+
+    Returns:
+        str: Regex string passed to FastAPI CORSMiddleware.
+    """
+    return r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$"
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     """Manage application startup and shutdown resources.
@@ -54,7 +66,10 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:5173",
         "http://127.0.0.1:5173",
+        "http://localhost:4173",
+        "http://127.0.0.1:4173",
     ],
+    allow_origin_regex=build_dev_cors_origin_regex(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

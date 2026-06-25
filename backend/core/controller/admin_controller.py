@@ -1,5 +1,7 @@
 """Controller logic for admin dashboard management workflows."""
 
+from datetime import datetime, timezone
+
 from fastapi import HTTPException, status
 
 from commons.logger import logger
@@ -31,6 +33,20 @@ class AdminController:
         self.scenario_controller = ScenarioController()
 
     @staticmethod
+    def _as_utc(value: datetime) -> datetime:
+        """Normalize a datetime value to UTC-aware form.
+
+        Args:
+            value (datetime): Datetime value loaded from persistence.
+
+        Returns:
+            datetime: UTC-aware datetime for safe comparisons.
+        """
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
+
+    @staticmethod
     def _resolve_dashboard_status(*, user: User, latest_invitation) -> str:
         """Resolve the admin dashboard status for one salesperson.
 
@@ -47,7 +63,7 @@ class AdminController:
         if (
             latest_invitation is not None
             and latest_invitation.status == InvitationStatus.PENDING
-            and latest_invitation.expires_at > get_utc_now()
+            and AdminController._as_utc(latest_invitation.expires_at) > get_utc_now()
         ):
             return "INVITED"
 
@@ -190,7 +206,7 @@ class AdminController:
                 for invitation in invitations:
                     if (
                         invitation.status == InvitationStatus.PENDING
-                        and invitation.expires_at <= get_utc_now()
+                        and self._as_utc(invitation.expires_at) <= get_utc_now()
                     ):
                         await self.crud_invitation.update(
                             id=str(invitation.id),

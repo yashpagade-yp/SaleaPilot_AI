@@ -12,7 +12,8 @@ The current product auth direction is:
 - admin lands on a dashboard-style management workspace after login
 - admin sends invitation to the salesperson's real email address
 - admin should manage invitation and salesperson access from one dashboard
-- salesperson first validates the invitation token copied from the invitation email
+- salesperson opens the accept-invitation page from the invitation email link
+- invitation page should carry or prefill invited email and invitation code
 - salesperson login then continues with invited email + real email OTP
 - salesperson-side flow may receive additional UX updates later
 
@@ -87,7 +88,8 @@ Define the initial backend entities:
 - allow only authenticated admins to send invitations
 - store invitation state against the salesperson email address
 - support dashboard-driven salesperson listing and access status visibility
-- validate invitation token before salesperson OTP request is allowed
+- validate invitation code before salesperson OTP request is allowed
+- support accept-invitation page flow driven from the invitation email link
 - create salesperson email OTP challenges during login
 - send real OTP emails to invited salesperson addresses
 - verify salesperson OTP before granting access token
@@ -115,6 +117,7 @@ Define the initial backend entities:
   - `dailyToken`
 - store session state in MongoDB
 - return the Daily room and token data needed by the frontend to join the browser call
+- ensure the frontend call experience is rendered as a product-native AI interaction screen, not a Google Meet or generic meeting-style interface
 
 ## Phase 6: Conversation History
 
@@ -141,12 +144,14 @@ Backend APIs should support frontend flows for:
 - admin dashboard load
 - admin invitation sending
 - admin salesperson listing and status display
-- invitation token validation before salesperson login
+- accept-invitation link flow before salesperson login
+- invitation code validation before salesperson login
 - salesperson email OTP request
 - salesperson OTP verification
 - salesperson workspace `Agents` view
 - scenario selection
 - call start
+- product-native live AI call screen with voice-first agent experience
 - session status polling
 - salesperson workspace `Conversations` view
 - salesperson workspace `Feedback` view
@@ -192,4 +197,5 @@ The first useful backend milestone should include:
 - final email provider and OTP delivery implementation
 - feedback generation source and rubric
 - webhook vs polling approach for conversation completion
-- frontend UX implementation for invitation-token-first salesperson login
+- frontend UX implementation for invitation-email-link accept flow
+- frontend UX implementation for non-meeting-style live agent interaction

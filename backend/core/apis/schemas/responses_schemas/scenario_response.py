@@ -14,6 +14,7 @@ class ScenarioResponse(BaseModel):
     key: ScenarioKey = Field(..., description="Scenario key.")
     title: str = Field(..., description="Display title of the scenario.")
     description: str = Field(..., description="Short description of the scenario.")
+    agent_id: str = Field(..., description="Eigi agent identifier mapped to the scenario.")
     is_active: bool = Field(..., description="Whether the scenario is active.")
     sort_order: int = Field(..., description="Display order for scenario listing.")
 

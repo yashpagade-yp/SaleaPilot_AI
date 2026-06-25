@@ -1,15 +1,14 @@
-import type { ApiErrorShape } from "../../types/api";
-
 const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL?.trim() || "http://localhost:8000";
+  import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "") || "http://localhost:8000";
 
 export class ApiError extends Error {
   status: number;
+  detail: string;
 
-  constructor(message: string, status: number) {
-    super(message);
-    this.name = "ApiError";
+  constructor(status: number, detail: string) {
+    super(detail);
     this.status = status;
+    this.detail = detail;
   }
 }
 
@@ -21,34 +20,33 @@ export async function apiRequest<T>(
   path: string,
   options: RequestOptions = {},
 ): Promise<T> {
-  const headers = new Headers(options.headers ?? {});
-  headers.set("Content-Type", "application/json");
-
-  if (options.token) {
-    headers.set("Authorization", `Bearer ${options.token}`);
-  }
+  const { token, headers, ...rest } = options;
 
   const response = await fetch(`${API_BASE_URL}${path}`, {
-    ...options,
-    headers,
+    ...rest,
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...headers,
+    },
   });
 
   if (!response.ok) {
-    const payload = (await tryParseJson(response)) as ApiErrorShape | null;
-    const message =
-      payload?.detail || payload?.message || "Something went wrong. Please try again.";
-    throw new ApiError(message, response.status);
+    let detail = "Something went wrong.";
+
+    try {
+      const payload = await response.json();
+      detail = payload.detail || payload.message || detail;
+    } catch {
+      detail = response.statusText || detail;
+    }
+
+    throw new ApiError(response.status, detail);
+  }
+
+  if (response.status === 204) {
+    return undefined as T;
   }
 
   return (await response.json()) as T;
 }
-
-async function tryParseJson(response: Response) {
-  try {
-    return await response.json();
-  } catch {
-    return null;
-  }
-}
-
-export { API_BASE_URL };
