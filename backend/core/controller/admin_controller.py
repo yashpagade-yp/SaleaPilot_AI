@@ -8,6 +8,7 @@ from commons.logger import logger
 from core.controller.conversation_controller import ConversationController
 from core.controller.feedback_controller import FeedbackController
 from core.controller.scenario_controller import ScenarioController
+from core.cruds.conversation_crud import CRUDConversation
 from core.cruds.feedback_crud import CRUDFeedback
 from core.cruds.invitation_crud import CRUDInvitation
 from core.cruds.training_session_crud import CRUDTrainingSession
@@ -27,6 +28,7 @@ class AdminController:
         self.crud_user = CRUDUser()
         self.crud_invitation = CRUDInvitation()
         self.crud_training_session = CRUDTrainingSession()
+        self.crud_conversation = CRUDConversation()
         self.crud_feedback = CRUDFeedback()
         self.conversation_controller = ConversationController()
         self.feedback_controller = FeedbackController()
@@ -363,7 +365,7 @@ class AdminController:
             )
 
     async def delete_salesperson(self, *, salesperson_id: str) -> dict:
-        """Delete one salesperson when no practice history exists.
+        """Delete one salesperson and all dependent practice history.
 
         Args:
             salesperson_id (str): Salesperson user identifier.
@@ -372,7 +374,7 @@ class AdminController:
             dict: Human-readable delete result.
 
         Raises:
-            HTTPException: If the salesperson has practice history or delete fails.
+            HTTPException: If the salesperson delete fails.
         """
         try:
             logging.info("Executing AdminController.delete_salesperson")
@@ -380,15 +382,20 @@ class AdminController:
             training_sessions = await self.crud_training_session.list_by_user_id(
                 user_id=str(user.id)
             )
-            if training_sessions:
-                logging.warning(
-                    f"Admin attempted to delete salesperson with practice history: {salesperson_id}"
-                )
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail="Cannot delete a salesperson with existing practice history",
+            deleted_conversation_count = 0
+            for training_session in training_sessions:
+                deleted_conversation_count += (
+                    await self.crud_conversation.delete_by_training_session_id(
+                        training_session_id=str(training_session.id)
+                    )
                 )
 
+            deleted_feedback_count = await self.crud_feedback.delete_by_user_id(
+                user_id=str(user.id)
+            )
+            deleted_training_session_count = (
+                await self.crud_training_session.delete_by_user_id(user_id=str(user.id))
+            )
             await self.crud_invitation.delete_by_email(email=user.email)
             deleted = await self.crud_user.delete(id=str(user.id))
             if not deleted:
@@ -399,7 +406,12 @@ class AdminController:
                 )
 
             return {
-                "message": f"Salesperson {user.email} deleted successfully",
+                "message": (
+                    f"Salesperson {user.email} deleted successfully. "
+                    f"Removed {deleted_training_session_count} training sessions, "
+                    f"{deleted_conversation_count} conversations, and "
+                    f"{deleted_feedback_count} feedback records."
+                ),
             }
         except HTTPException:
             raise

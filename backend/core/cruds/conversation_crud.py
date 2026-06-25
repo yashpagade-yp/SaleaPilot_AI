@@ -118,6 +118,41 @@ class CRUDConversation:
             )
             raise error
 
+    async def delete_by_training_session_id(
+        self,
+        *,
+        training_session_id: str,
+    ) -> int:
+        """Delete conversation records owned by one training session.
+
+        Args:
+            training_session_id (str): Training session identifier.
+
+        Returns:
+            int: Number of deleted conversation records.
+
+        Raises:
+            Exception: If the database delete fails.
+        """
+        try:
+            logging.info("Executing CRUDConversation.delete_by_training_session_id")
+            conversations = await get_engine().find(
+                Conversation,
+                Conversation.training_session_id == training_session_id,
+            )
+            deleted_count = 0
+            for conversation in conversations:
+                await get_engine().delete(conversation)
+                deleted_count += 1
+
+            return deleted_count
+        except Exception as error:
+            logging.error(
+                "Error in CRUDConversation.delete_by_training_session_id: "
+                f"{error}"
+            )
+            raise error
+
     async def update(self, *, id: str, obj_in: dict) -> Conversation | None:
         """Update an existing conversation record by identifier.
 

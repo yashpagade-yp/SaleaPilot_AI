@@ -21,7 +21,7 @@ training_session_router = APIRouter(
     tags=["training-sessions"],
 )
 logging = logger(__name__)
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/v1/auth/salesperson/verify-otp")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/v1/auth/verify-otp")
 
 
 async def _require_salesperson(token: str):

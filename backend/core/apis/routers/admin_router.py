@@ -24,7 +24,7 @@ from core.models.user_model import UserRole
 
 admin_router = APIRouter(prefix="/v1/admin", tags=["admin"])
 logging = logger(__name__)
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/v1/auth/admin/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/v1/auth/verify-otp")
 
 
 async def _require_admin(token: str):

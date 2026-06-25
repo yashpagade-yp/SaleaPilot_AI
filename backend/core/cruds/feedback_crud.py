@@ -109,6 +109,31 @@ class CRUDFeedback:
             logging.error(f"Error in CRUDFeedback.list_by_user_id: {error}")
             raise error
 
+    async def delete_by_user_id(self, *, user_id: str) -> int:
+        """Delete feedback records belonging to one salesperson.
+
+        Args:
+            user_id (str): Salesperson user identifier.
+
+        Returns:
+            int: Number of deleted feedback records.
+
+        Raises:
+            Exception: If the database delete fails.
+        """
+        try:
+            logging.info("Executing CRUDFeedback.delete_by_user_id")
+            feedback_items = await get_engine().find(Feedback, Feedback.user_id == user_id)
+            deleted_count = 0
+            for feedback in feedback_items:
+                await get_engine().delete(feedback)
+                deleted_count += 1
+
+            return deleted_count
+        except Exception as error:
+            logging.error(f"Error in CRUDFeedback.delete_by_user_id: {error}")
+            raise error
+
     async def update(self, *, id: str, obj_in: dict) -> Feedback | None:
         """Update an existing feedback record by identifier.
 

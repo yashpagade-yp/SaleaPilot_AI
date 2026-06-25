@@ -219,3 +219,26 @@ def build_salesperson_otp_email(*, name: str, otp: str) -> dict[str, str]:
         action_code=otp,
         footer_note="If you did not request this OTP, you can safely ignore this email.",
     )
+
+
+def build_admin_otp_email(*, name: str, otp: str) -> dict[str, str]:
+    """Build the admin OTP email payload.
+
+    Args:
+        name (str): Recipient display name.
+        otp (str): One-time password sent to the admin email.
+
+    Returns:
+        dict[str, str]: Subject plus plain-text and HTML bodies.
+    """
+    return generate_email_template(
+        name=name,
+        subject=f"{_company_name()} Admin Login OTP",
+        title="Your SalesPilot AI Admin OTP",
+        description=(
+            "Use this one-time password to complete your secure admin login. "
+            "This OTP expires in 10 minutes."
+        ),
+        action_code=otp,
+        footer_note="If you did not request this OTP, you can safely ignore this email.",
+    )

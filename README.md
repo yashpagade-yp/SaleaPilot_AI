@@ -23,7 +23,9 @@ Help salespeople improve how they handle real customer conversations by practici
 The current product flow now follows these rules:
 
 - `Admin` already exists in the backend database
-- admin logs in directly with `phone number + password`
+- admin and returning salesperson use one shared login page
+- system reads the user role from stored credentials
+- admin logs in with `email + password + real OTP`
 - admin does **not** use a mock OTP flow
 - admin lands on a dashboard-style admin workspace after login
 - admin sends an invitation to the salesperson's real email address
@@ -31,9 +33,8 @@ The current product flow now follows these rules:
 - invitation email should contain an accept-invitation link or button
 - invitation page should open with invited email and invitation code already available
 - invitation allows that salesperson email to use the platform login flow
-- salesperson then logs in with the invited email address
-- system sends a real OTP to the salesperson email
-- salesperson completes login by entering the email OTP
+- salesperson first completes invitation onboarding with email OTP and password creation
+- returning salesperson then logs in with `email + password + real OTP`
 - salesperson-side UX may receive later flow refinements
 
 ## Fixed Training Personas
@@ -57,10 +58,10 @@ The `confused` persona is intentionally postponed for a later version to reduce 
 ## Core Responsibilities
 
 - user and session management
-- direct admin authentication
+- unified user email/password/OTP authentication
 - admin dashboard access management
 - salesperson invitation by email
-- salesperson email-OTP authentication
+- salesperson onboarding and returning-login authentication
 - scenario selection for the three fixed personas
 - Eigi agent mapping and conversation metadata creation
 - Eigi `/v1/public/daily` session orchestration
@@ -134,7 +135,9 @@ This means the system should store and use:
 ### Admin
 
 - admin record is pre-created in the database
-- admin logs in using phone number and password
+- admin uses the shared login page
+- system recognizes the user role as `ADMIN`
+- admin verifies a real OTP
 - admin reaches the `Admin Dashboard` after successful login
 - admin uses the same dashboard to:
   - send invitations
@@ -149,9 +152,15 @@ This means the system should store and use:
 - salesperson reaches the accept-invitation page
 - invited email and invitation code are already present or prefilled there
 - system validates the invitation code
-- salesperson then logs in with the invited email address
+- salesperson moves to the complete-profile step
 - system sends a real OTP to that email
-- salesperson enters OTP to complete login
+- salesperson enters OTP, profile details, and creates a password
+- salesperson completes onboarding and enters the workspace
+- later, returning salesperson login uses:
+  - email
+  - password
+  - real OTP
+- system recognizes the user role as `SALESPERSON`
 - salesperson accesses a workspace built around:
   - agents
   - conversations
@@ -193,15 +202,19 @@ Invitation and OTP emails now use async Gmail SMTP with HTML and plain-text
 templates.
 
 1. Copy `backend/.env.example` to `backend/.env`.
-2. Set `gmail_user` to your Gmail address.
-3. Set `gmail_app_password` to your 16-character Gmail App Password.
-4. Set `FRONTEND_BASE_URL` to the frontend app URL that should open from the
+2. Set `MONGODB_URL` and `MONGODB_DATABASE`.
+3. Set `DEFAULT_ADMIN_EMAIL` to the admin email that should own dashboard access.
+4. Set `DEFAULT_ADMIN_PASSWORD` to that admin's password.
+5. Set `secret` and `otp_secret` to strong private values.
+6. Set `gmail_user` to your Gmail address.
+7. Set `gmail_app_password` to your 16-character Gmail App Password.
+8. Set `FRONTEND_BASE_URL` to the frontend app URL that should open from the
    invitation email. For local development use `http://localhost:5173`.
-5. Optionally set:
+9. Optionally set:
    - `company_name`
    - `support_email`
    - `logo_url`
-6. Restart the backend server after updating the environment file.
+10. Restart the backend server after updating the environment file.
 
 How to get a Gmail App Password:
 
@@ -214,6 +227,11 @@ Notes:
 
 - Invitation emails and OTP emails are both sent through the same Gmail async
   helper.
+- The normal login page is now shared across admin and returning salesperson users.
+- The backend determines whether the signed-in user is `ADMIN` or `SALESPERSON`
+  from the stored account credentials and returned user role.
+- Admin login now uses `email + password + OTP`, so the seeded admin email in
+  `backend/.env` must match the admin record the backend should manage.
 - In non-production environments, the frontend still shows a development
   preview of the invitation code and OTP so local testing is not blocked if
   mailbox delivery is delayed.
