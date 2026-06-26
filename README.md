@@ -18,18 +18,24 @@ The system uses:
 
 Help salespeople improve how they handle real customer conversations by practicing with AI-driven customer personas.
 
-## Current Auth Direction
+## Current Product Flow
 
-The product authentication flow now follows these rules:
+The current product flow now follows these rules:
 
 - `Admin` already exists in the backend database
-- admin logs in directly with `phone number + password`
+- admin and returning salesperson use one shared login page
+- system reads the user role from stored credentials
+- admin logs in with `email + password + real OTP`
 - admin does **not** use a mock OTP flow
+- admin lands on a dashboard-style admin workspace after login
 - admin sends an invitation to the salesperson's real email address
+- admin should manage salespeople from one place instead of jumping across separate screens
+- invitation email should contain an accept-invitation link or button
+- invitation page should open with invited email and invitation code already available
 - invitation allows that salesperson email to use the platform login flow
-- salesperson logs in with the invited email address
-- system sends a real OTP to the salesperson email
-- salesperson completes login by entering the email OTP
+- salesperson first completes invitation onboarding with email OTP and password creation
+- returning salesperson then logs in with `email + password + real OTP`
+- salesperson-side UX may receive later flow refinements
 
 ## Fixed Training Personas
 
@@ -52,15 +58,27 @@ The `confused` persona is intentionally postponed for a later version to reduce 
 ## Core Responsibilities
 
 - user and session management
-- direct admin authentication
+- unified user email/password/OTP authentication
+- admin dashboard access management
 - salesperson invitation by email
-- salesperson email-OTP authentication
-- scenario selection for the four fixed personas
+- salesperson onboarding and returning-login authentication
+- scenario selection for the three fixed personas
 - Eigi agent mapping and conversation metadata creation
 - Eigi `/v1/public/daily` session orchestration
 - Daily room/token delivery for frontend web call joining
 - conversation history retrieval
 - post-session feedback generation
+
+## Salesperson Workspace Direction
+
+The salesperson workspace should be organized around three connected sections:
+
+- `Agents`
+  The three training personas the salesperson can practice with.
+- `Conversations`
+  The salesperson's conversation records with a selected agent or persona.
+- `Feedback`
+  The salesperson's performance review, including summary, strengths, improvement areas, scores, and recommendations.
 
 ## Eigi Daily Conversation Flow
 
@@ -117,17 +135,55 @@ This means the system should store and use:
 ### Admin
 
 - admin record is pre-created in the database
-- admin logs in using phone number and password
-- admin opens the invitation area after successful login
-- admin sends an invitation to the salesperson email
+- admin uses the shared login page
+- system recognizes the user role as `ADMIN`
+- admin verifies a real OTP
+- admin reaches the `Admin Dashboard` after successful login
+- admin uses the same dashboard to:
+  - send invitations
+  - view salesperson records
+  - review status such as invited, active, or inactive
+  - manage access-related actions over time
 
 ### Salesperson
 
 - salesperson receives the invitation email
-- salesperson logs in with the invited email address
+- salesperson clicks the accept-invitation link or button from the email
+- salesperson reaches the accept-invitation page
+- invited email and invitation code are already present or prefilled there
+- system validates the invitation code
+- salesperson moves to the complete-profile step
 - system sends a real OTP to that email
-- salesperson enters OTP to complete login
-- salesperson accesses scenario selection, web calling, history, transcript, and feedback
+- salesperson enters OTP, profile details, and creates a password
+- salesperson completes onboarding and enters the workspace
+- later, returning salesperson login uses:
+  - email
+  - password
+  - real OTP
+- system recognizes the user role as `SALESPERSON`
+- salesperson accesses a workspace built around:
+  - agents
+  - conversations
+  - feedback
+- salesperson uses `Agents` to choose a training persona
+- salesperson uses `Conversations` to review call history and transcript
+- salesperson uses `Feedback` to review performance after each session
+- each salesperson can see only their own conversations and feedback
+- admins can review salesperson conversations and feedback from the admin side
+- one salesperson must never see another salesperson's conversations or feedback
+
+## Admin Dashboard Direction
+
+The admin experience should feel like a real management dashboard instead of a basic form page.
+
+The dashboard direction includes:
+
+- a clean sidebar or workspace navigation structure
+- a clear workspace access management header
+- an invite panel inside the dashboard
+- a salesperson list or table inside the dashboard
+- status visibility for invited and active users
+- room for future actions such as conversation review, activation control, and removal
 
 ## Runtime Direction For V1
 
@@ -139,6 +195,46 @@ For the first version, the live training call should use:
 
 This means we do not need a separate Pipecat-based runtime for the core `v1`
 voice flow if Eigi is already handling the agent runtime for these sessions.
+
+## Gmail Email Setup
+
+Invitation and OTP emails now use async Gmail SMTP with HTML and plain-text
+templates.
+
+1. Copy `backend/.env.example` to `backend/.env`.
+2. Set `MONGODB_URL` and `MONGODB_DATABASE`.
+3. Set `DEFAULT_ADMIN_EMAIL` to the admin email that should own dashboard access.
+4. Set `DEFAULT_ADMIN_PASSWORD` to that admin's password.
+5. Set `secret` and `otp_secret` to strong private values.
+6. Set `gmail_user` to your Gmail address.
+7. Set `gmail_app_password` to your 16-character Gmail App Password.
+8. Set `FRONTEND_BASE_URL` to the frontend app URL that should open from the
+   invitation email. For local development use `http://localhost:5173`.
+9. Optionally set:
+   - `company_name`
+   - `support_email`
+   - `logo_url`
+10. Restart the backend server after updating the environment file.
+
+How to get a Gmail App Password:
+
+1. Enable 2-Step Verification on your Google account.
+2. Go to `Google Account -> Security -> App Passwords`.
+3. Generate a password for `Mail` on `Other device`.
+4. Paste that 16-character password into `gmail_app_password`.
+
+Notes:
+
+- Invitation emails and OTP emails are both sent through the same Gmail async
+  helper.
+- The normal login page is now shared across admin and returning salesperson users.
+- The backend determines whether the signed-in user is `ADMIN` or `SALESPERSON`
+  from the stored account credentials and returned user role.
+- Admin login now uses `email + password + OTP`, so the seeded admin email in
+  `backend/.env` must match the admin record the backend should manage.
+- In non-production environments, the frontend still shows a development
+  preview of the invitation code and OTP so local testing is not blocked if
+  mailbox delivery is delayed.
 
 ## Planned Backend Modules
 

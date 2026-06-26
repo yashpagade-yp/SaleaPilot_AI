@@ -12,17 +12,17 @@ class SendInvitationRequest(BaseModel):
         ...,
         description="Salesperson email address that should receive the invitation.",
     )
-    first_name: str = Field(
-        ...,
+    first_name: str | None = Field(
+        default=None,
         min_length=2,
         max_length=50,
-        description="First name of the invited salesperson.",
+        description="Optional first name of the invited salesperson.",
     )
-    last_name: str = Field(
-        ...,
+    last_name: str | None = Field(
+        default=None,
         min_length=2,
         max_length=50,
-        description="Last name of the invited salesperson.",
+        description="Optional last name of the invited salesperson.",
     )
 
 

@@ -151,3 +151,31 @@ class CRUDUser:
         except Exception as error:
             logging.error(f"Error in CRUDUser.update: {error}")
             raise error
+
+    async def delete(self, *, id: str) -> bool:
+        """Delete an existing user record by identifier.
+
+        Args:
+            id (str): User identifier.
+
+        Returns:
+            bool: True when the record was deleted, otherwise False.
+
+        Raises:
+            HTTPException 400: If the identifier is invalid.
+            Exception: If the database delete fails.
+        """
+        try:
+            logging.info("Executing CRUDUser.delete")
+            user = await self.get_by_id(id=id)
+            if user is None:
+                logging.warning(f"No user found with id: {id}")
+                return False
+
+            await get_engine().delete(user)
+            return True
+        except HTTPException:
+            raise
+        except Exception as error:
+            logging.error(f"Error in CRUDUser.delete: {error}")
+            raise error

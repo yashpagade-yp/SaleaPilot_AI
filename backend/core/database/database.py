@@ -3,6 +3,7 @@
 from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
+import secrets
 
 from bson import ObjectId
 from dotenv import load_dotenv
@@ -11,13 +12,14 @@ from odmantic import AIOEngine, Model
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from commons.auth import encrypt_password
 from commons.logger import logger
 from core.models.conversation_model import Conversation
 from core.models.feedback_model import Feedback
 from core.models.invitation_model import Invitation
 from core.models.scenario_model import Scenario, ScenarioKey
 from core.models.training_session_model import TrainingSession
-from core.models.user_model import User
+from core.models.user_model import User, UserRole
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 ENV_FILE_PATH = BACKEND_ROOT / ".env"
@@ -59,6 +61,14 @@ class MongoSettings(BaseSettings):
 
     mongodb_url: str = Field(..., alias="MONGODB_URL")
     mongodb_database: str = Field(..., alias="MONGODB_DATABASE")
+    default_admin_email: str | None = Field(
+        default=None,
+        alias="DEFAULT_ADMIN_EMAIL",
+    )
+    default_admin_password: str | None = Field(
+        default=None,
+        alias="DEFAULT_ADMIN_PASSWORD",
+    )
 
     model_config = SettingsConfigDict(
         env_file=ENV_FILE_PATH,
@@ -116,6 +126,15 @@ def get_utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def generate_placeholder_phone_number() -> str:
+    """Generate a unique placeholder phone number for admin/user records.
+
+    Returns:
+        str: Random numeric placeholder value.
+    """
+    return f"9{secrets.randbelow(10**17):017d}"
+
+
 def parse_object_id(id: str) -> ObjectId:
     """Convert a string identifier into a MongoDB ObjectId.
 
@@ -160,6 +179,7 @@ async def connect_to_mongo() -> None:
             database=settings.mongodb_database,
         )
         await engine.configure_database(models=REGISTERED_MODELS)
+        await ensure_default_admin()
         await ensure_default_scenarios()
         logging.info(
             f"MongoDB connected successfully to database {settings.mongodb_database}"
@@ -208,6 +228,95 @@ async def ensure_default_scenarios() -> None:
             )
     except Exception as error:
         logging.error(f"Error in ensure_default_scenarios: {error}")
+        raise error
+
+
+async def ensure_default_admin() -> None:
+    """Create or update the default admin record from environment settings.
+
+    Ensures the admin login flow uses the configured email and password rather
+    than the legacy phone-number-based admin identity.
+
+    Raises:
+        RuntimeError: If the ODMantic engine has not been initialized.
+        Exception: If reading or writing the admin record fails.
+    """
+    try:
+        logging.info("Executing ensure_default_admin")
+        active_engine = get_engine()
+        settings = get_mongo_settings()
+        admin_email = (settings.default_admin_email or "").strip().lower()
+        admin_password = (settings.default_admin_password or "").strip()
+
+        if not admin_email or not admin_password:
+            logging.error(
+                "Missing DEFAULT_ADMIN_EMAIL or DEFAULT_ADMIN_PASSWORD for admin startup seed"
+            )
+            raise RuntimeError(
+                "DEFAULT_ADMIN_EMAIL and DEFAULT_ADMIN_PASSWORD must be set in "
+                "backend/.env for the admin email + password + OTP flow."
+            )
+
+        admin_password_hash = encrypt_password(admin_password)
+
+        existing_admin = await active_engine.find_one(
+            User,
+            User.email == admin_email,
+        )
+
+        if existing_admin is None:
+            admin_candidates = await active_engine.find(
+                User,
+                User.role == UserRole.ADMIN,
+            )
+            if admin_candidates:
+                logging.error(
+                    "Admin seed email does not match the existing admin record"
+                )
+                raise RuntimeError(
+                    "An admin user already exists with a different email. "
+                    "Update DEFAULT_ADMIN_EMAIL to match the existing admin "
+                    "record or manually align the database before startup."
+                )
+
+        if existing_admin is None:
+            await active_engine.save(
+                User(
+                    first_name="Admin",
+                    last_name="User",
+                    email=admin_email,
+                    phone_number=generate_placeholder_phone_number(),
+                    password_hash=admin_password_hash,
+                    role=UserRole.ADMIN,
+                    is_active=True,
+                    otp=None,
+                    auth_metadata={
+                        "seeded_from_env": True,
+                    },
+                )
+            )
+            logging.info(f"Seeded default admin for email {admin_email}")
+            return
+
+        existing_admin.first_name = existing_admin.first_name or "Admin"
+        existing_admin.last_name = existing_admin.last_name or "User"
+        existing_admin.email = admin_email
+        existing_admin.phone_number = (
+            existing_admin.phone_number or generate_placeholder_phone_number()
+        )
+        existing_admin.password_hash = admin_password_hash
+        existing_admin.role = UserRole.ADMIN
+        existing_admin.is_active = True
+        existing_admin.otp = None
+        existing_admin.auth_metadata = {
+            **(existing_admin.auth_metadata or {}),
+            "seeded_from_env": True,
+        }
+        existing_admin.updated_at = get_utc_now()
+        await active_engine.save(existing_admin)
+        logging.info(f"Updated default admin for email {admin_email}")
+    except Exception as error:
+        logging.error(f"Error in ensure_default_admin: {error}")
         raise error
 
 

@@ -19,7 +19,7 @@ from core.models.user_model import UserRole
 
 invitation_router = APIRouter(prefix="/v1/invitations", tags=["invitations"])
 logging = logger(__name__)
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/v1/auth/admin/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/v1/auth/verify-otp")
 
 
 async def _get_authenticated_user(token: str):

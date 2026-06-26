@@ -25,6 +25,14 @@ class InvitationResponse(BaseModel):
         default=None,
         description="UTC timestamp when the invite was accepted, if applicable.",
     )
+    delivery_channel: str = Field(
+        default="email",
+        description="Delivery channel used for the invitation handoff.",
+    )
+    dev_invitation_token: str | None = Field(
+        default=None,
+        description="Development-only invitation token preview returned outside production.",
+    )
 
 
 class InvitationAcceptResponse(BaseModel):

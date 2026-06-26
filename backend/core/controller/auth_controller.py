@@ -1,11 +1,14 @@
 """Controller logic for authentication-related workflows."""
 
 from datetime import datetime, timedelta, timezone
-import smtplib
+from os import getenv
+import re
+import secrets
 
 from fastapi import HTTPException, status
 
 from commons.auth import (
+    encrypt_password,
     generate_otp,
     hash_otp,
     signJWT,
@@ -18,7 +21,11 @@ from core.cruds.user_crud import CRUDUser
 from core.database.database import get_utc_now
 from core.models.invitation_model import InvitationStatus
 from core.models.user_model import OtpPurpose, UserRole
-from core.services.email_service import EmailService
+from core.services.email_helper import EmailDeliveryError, send_email
+from core.services.email_template_generator import (
+    build_admin_otp_email,
+    build_salesperson_otp_email,
+)
 
 logging = logger(__name__)
 
@@ -30,7 +37,6 @@ class AuthController:
         """Initialize CRUD dependencies for auth workflows."""
         self.crud_user = CRUDUser()
         self.crud_invitation = CRUDInvitation()
-        self.email_service = EmailService()
 
     @staticmethod
     def _serialize_user_profile(user) -> dict:
@@ -66,6 +72,120 @@ class AuthController:
             return value.replace(tzinfo=timezone.utc)
         return value.astimezone(timezone.utc)
 
+    @staticmethod
+    def _should_expose_dev_delivery_preview() -> bool:
+        """Decide whether development-only OTP previews may be returned.
+
+        Returns:
+            bool: True when the app is outside production.
+        """
+        app_env = getenv("APP_ENV", "development").strip().lower()
+        return app_env != "production"
+
+    @staticmethod
+    def _build_otp_response(*, message: str, otp: str) -> dict:
+        """Build the standard OTP dispatch response payload.
+
+        Args:
+            message (str): User-facing OTP delivery message.
+            otp (str): Plain OTP value for development preview mode.
+
+        Returns:
+            dict: OTP dispatch response payload.
+        """
+        return {
+            "message": message,
+            "delivery_channel": "email",
+            "dev_otp": None,
+        }
+
+    @staticmethod
+    def _generate_placeholder_phone_number() -> str:
+        """Generate a unique placeholder phone number for invited salespeople.
+
+        Returns:
+            str: Random numeric placeholder value.
+        """
+        return f"9{secrets.randbelow(10**17):017d}"
+
+    @staticmethod
+    def _derive_name_parts_from_email(email: str) -> tuple[str, str]:
+        """Derive safe fallback name parts from an email address.
+
+        Args:
+            email (str): Invited salesperson email address.
+
+        Returns:
+            tuple[str, str]: First and last name placeholders for persistence.
+        """
+        local_part = email.split("@", maxsplit=1)[0]
+        tokens = [
+            token.capitalize()
+            for token in re.split(r"[^A-Za-z0-9]+", local_part)
+            if token
+        ]
+
+        if len(tokens) >= 2:
+            return tokens[0][:50], " ".join(tokens[1:])[:50]
+
+        if len(tokens) == 1:
+            first_name = tokens[0][:50]
+            if len(first_name) < 2:
+                first_name = f"{first_name}x"
+            return first_name, "Salesperson"
+
+        return "Sales", "Person"
+
+    async def _ensure_salesperson_user_for_invitation(self, *, invitation):
+        """Return a salesperson user for an invitation, creating one if missing.
+
+        This keeps legacy invitation records usable even if they were created
+        before placeholder salesperson users were stored at invite time.
+
+        Args:
+            invitation: Valid invitation model instance.
+
+        Returns:
+            User: Matching or newly created salesperson user record.
+
+        Raises:
+            HTTPException: If the invitation cannot map to a salesperson account.
+        """
+        user = await self.crud_user.get_by_email(email=invitation.email)
+        if user is not None:
+            if user.role != UserRole.SALESPERSON:
+                logging.warning(
+                    f"Invitation email belongs to a non-salesperson user: {invitation.email}"
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Invitation email does not belong to a salesperson account",
+                )
+            return user
+
+        fallback_first_name, fallback_last_name = self._derive_name_parts_from_email(
+            invitation.email
+        )
+        created_user = await self.crud_user.create(
+            obj_in={
+                "first_name": invitation.first_name or fallback_first_name,
+                "last_name": invitation.last_name or fallback_last_name,
+                "email": invitation.email,
+                "phone_number": self._generate_placeholder_phone_number(),
+                "password_hash": encrypt_password(secrets.token_urlsafe(32)),
+                "role": UserRole.SALESPERSON,
+                "is_active": False,
+                "auth_metadata": {
+                    "invited_via_email": True,
+                    "placeholder_created_from_invitation": True,
+                },
+            }
+        )
+        logging.info(
+            f"Created missing salesperson placeholder account for invitation email {invitation.email}"
+        )
+        return created_user
+
     async def _get_latest_pending_invitation(self, *, email: str):
         """Return the latest pending invitation for one salesperson email.
 
@@ -86,41 +206,232 @@ class AuthController:
 
         return max(pending_invitations, key=lambda invitation: invitation.created_at)
 
-    async def admin_login(self, *, phone_number: str, password: str) -> dict:
-        """Validate admin credentials and return a signed login response.
+    async def _get_valid_invitation_for_token(
+        self,
+        *,
+        token: str,
+        email: str | None = None,
+    ):
+        """Return a valid invitation record for one invitation token.
+
+        Accepts invitations that are still pending or already accepted so the
+        same invited salesperson can continue using the login flow.
 
         Args:
-            phone_number (str): Admin phone number used for login.
+            token (str): Invitation token copied from the invitation email.
+            email (str | None): Optional invited email to cross-check with the token.
+
+        Returns:
+            Invitation: Matching valid invitation record.
+
+        Raises:
+            HTTPException: If the token is unknown, mismatched, expired, or cancelled.
+        """
+        invitation = await self.crud_invitation.get_by_token(token=token)
+        if invitation is None:
+            logging.warning("Salesperson OTP request attempted with unknown invitation token")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Invitation token not found",
+            )
+
+        if email is not None and invitation.email != email:
+            logging.warning(
+                f"Invitation token email mismatch for requested salesperson email {email}"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invitation token does not match this email",
+            )
+
+        if invitation.status == InvitationStatus.CANCELLED:
+            logging.warning(f"Cancelled invitation token attempted for email {invitation.email}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invitation is no longer valid",
+            )
+
+        if self._as_utc(invitation.expires_at) < get_utc_now():
+            logging.warning(f"Expired invitation token attempted for email {invitation.email}")
+            await self.crud_invitation.update(
+                id=str(invitation.id),
+                obj_in={"status": InvitationStatus.EXPIRED},
+            )
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invitation has expired",
+            )
+
+        if invitation.status not in (
+            InvitationStatus.PENDING,
+            InvitationStatus.ACCEPTED,
+        ):
+            logging.warning(
+                f"Invitation token attempted with unsupported status {invitation.status}"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invitation is no longer valid",
+            )
+
+        return invitation
+
+    async def admin_login(self, *, email: str, password: str) -> dict:
+        """Validate admin credentials and email an OTP to the admin.
+
+        Args:
+            email (str): Admin email address used for login.
             password (str): Plain-text admin password.
 
         Returns:
-            dict: Auth success payload with JWT and user profile.
+            dict: OTP dispatch acknowledgement payload.
 
         Raises:
             HTTPException: If the admin credentials are invalid or the user is inactive.
         """
         try:
             logging.info("Executing AuthController.admin_login")
-            user = await self.crud_user.get_by_phone_number(phone_number=phone_number)
+            user = await self.crud_user.get_by_email(email=email)
             if user is None or user.role != UserRole.ADMIN:
-                logging.warning(f"Admin user not found for phone number {phone_number}")
+                logging.warning(f"Admin user not found for email {email}")
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="Invalid phone number or password",
+                    detail="Invalid email or password",
                 )
 
             if not user.is_active:
-                logging.warning(f"Inactive admin attempted login: {phone_number}")
+                logging.warning(f"Inactive admin attempted login: {email}")
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
                     detail="User is not active",
                 )
 
             if not verify_password(password, user.password_hash):
-                logging.warning(f"Invalid admin password attempt for {phone_number}")
+                logging.warning(f"Invalid admin password attempt for {email}")
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="Invalid phone number or password",
+                    detail="Invalid email or password",
+                )
+
+            otp = generate_otp()
+            updated_user = await self.crud_user.update(
+                id=str(user.id),
+                obj_in={
+                    "otp": {
+                        "code_hash": hash_otp(otp),
+                        "purpose": OtpPurpose.ADMIN_LOGIN,
+                        "expires_at": get_utc_now() + timedelta(minutes=10),
+                        "requested_at": get_utc_now(),
+                        "attempt_count": 0,
+                        "attempt_window_started_at": get_utc_now(),
+                    }
+                },
+            )
+            if updated_user is None:
+                logging.error(f"Failed to persist admin OTP state for {email}")
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Failed to create OTP challenge",
+                )
+
+            email_template = build_admin_otp_email(
+                name=updated_user.first_name,
+                otp=otp,
+            )
+            await send_email(
+                subject=email_template["subject"],
+                to_email=email,
+                text=email_template["text"],
+                html=email_template["html"],
+            )
+
+            return self._build_otp_response(
+                message=(
+                    "Admin credentials verified. OTP sent to the admin email "
+                    "address. Check the inbox or spam folder."
+                ),
+                otp=otp,
+            )
+        except HTTPException:
+            raise
+        except EmailDeliveryError as error:
+            logging.error(
+                f"Error in AuthController.admin_login email send: {error}"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Failed to deliver admin OTP email",
+            )
+        except Exception as error:
+            logging.error(f"Error in AuthController.admin_login: {error}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Internal Server Error",
+            )
+
+    async def verify_admin_otp(self, *, email: str, otp: str) -> dict:
+        """Verify admin email OTP and return a signed login response.
+
+        Args:
+            email (str): Admin email address associated with the OTP.
+            otp (str): Plain OTP value entered by the admin.
+
+        Returns:
+            dict: Auth success payload with JWT and user profile.
+
+        Raises:
+            HTTPException: If the email or OTP is invalid, expired, or ineligible.
+        """
+        try:
+            logging.info("Executing AuthController.verify_admin_otp")
+            user = await self.crud_user.get_by_email(email=email)
+            if user is None or user.role != UserRole.ADMIN:
+                logging.warning(f"Admin user not found for email {email}")
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="No admin account found for this email",
+                )
+
+            if not user.is_active:
+                logging.warning(f"Inactive admin attempted OTP verification: {email}")
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="User is not active",
+                )
+
+            if user.otp is None or user.otp.purpose != OtpPurpose.ADMIN_LOGIN:
+                logging.warning(f"No active admin OTP found for {email}")
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="No active OTP found for this email",
+                )
+
+            if self._as_utc(user.otp.expires_at) < get_utc_now():
+                logging.warning(f"Expired admin OTP attempted for {email}")
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="OTP has expired",
+                )
+
+            if not verify_hashed_otp(otp, user.otp.code_hash):
+                attempt_count = min(user.otp.attempt_count + 1, 5)
+                await self.crud_user.update(
+                    id=str(user.id),
+                    obj_in={
+                        "otp": {
+                            "code_hash": user.otp.code_hash,
+                            "purpose": user.otp.purpose,
+                            "expires_at": user.otp.expires_at,
+                            "requested_at": user.otp.requested_at,
+                            "attempt_count": attempt_count,
+                            "attempt_window_started_at": user.otp.attempt_window_started_at,
+                        }
+                    },
+                )
+                logging.warning(f"Invalid admin OTP attempt for {email}")
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Invalid OTP",
                 )
 
             updated_user = await self.crud_user.update(
@@ -131,7 +442,7 @@ class AuthController:
                 },
             )
             if updated_user is None:
-                logging.error(f"Failed to update admin login state for {phone_number}")
+                logging.error(f"Failed to update admin login state for {email}")
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                     detail="Failed to complete login",
@@ -146,38 +457,65 @@ class AuthController:
         except HTTPException:
             raise
         except Exception as error:
-            logging.error(f"Error in AuthController.admin_login: {error}")
+            logging.error(f"Error in AuthController.verify_admin_otp: {error}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Internal Server Error",
             )
 
-    async def verify_admin_otp(self, *, phone_number: str, otp: str) -> dict:
-        """Reject deprecated admin OTP verification requests.
+    async def login(self, *, email: str, password: str) -> dict:
+        """Validate unified user credentials and send a role-appropriate OTP.
 
         Args:
-            phone_number (str): Admin phone number associated with the OTP.
-            otp (str): Plain OTP value entered by the admin.
+            email (str): User email address used for login.
+            password (str): Plain-text password.
 
         Returns:
-            dict: This method does not return successfully.
+            dict: OTP dispatch acknowledgement payload.
 
         Raises:
-            HTTPException: Always raised because admin OTP is no longer supported.
+            HTTPException: If the user credentials are invalid or unsupported.
         """
-        logging.info("Executing AuthController.verify_admin_otp")
-        logging.warning(
-            f"Deprecated admin OTP verification attempted for phone number {phone_number}"
-        )
-        raise HTTPException(
-            status_code=status.HTTP_410_GONE,
-            detail="Admin OTP login is no longer supported",
-        )
+        try:
+            logging.info("Executing AuthController.login")
+            user = await self.crud_user.get_by_email(email=email)
+            if user is None:
+                logging.warning(f"Unified login attempted with unknown email {email}")
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid email or password",
+                )
 
-    async def salesperson_request_otp(self, *, email: str) -> dict:
-        """Generate and email an OTP for an invited salesperson.
+            if user.role == UserRole.ADMIN:
+                return await self.admin_login(email=email, password=password)
+
+            if user.role == UserRole.SALESPERSON:
+                return await self.salesperson_login(email=email, password=password)
+
+            logging.warning(f"Unified login attempted with unsupported role {user.role}")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This user role is not allowed to sign in here",
+            )
+        except HTTPException:
+            raise
+        except Exception as error:
+            logging.error(f"Error in AuthController.login: {error}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Internal Server Error",
+            )
+
+    async def salesperson_request_otp(
+        self,
+        *,
+        invitation_token: str,
+        email: str,
+    ) -> dict:
+        """Validate an invitation token and email an OTP for an invited salesperson.
 
         Args:
+            invitation_token (str): Invitation token copied from the invitation email.
             email (str): Invited salesperson email address.
 
         Returns:
@@ -188,13 +526,13 @@ class AuthController:
         """
         try:
             logging.info("Executing AuthController.salesperson_request_otp")
-            user = await self.crud_user.get_by_email(email=email)
-            if user is None or user.role != UserRole.SALESPERSON:
-                logging.warning(f"Salesperson user not found for email {email}")
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail="No invited salesperson account found for this email",
-                )
+            invitation = await self._get_valid_invitation_for_token(
+                token=invitation_token,
+                email=email,
+            )
+            user = await self._ensure_salesperson_user_for_invitation(
+                invitation=invitation
+            )
 
             pending_invitation = await self._get_latest_pending_invitation(email=email)
             if pending_invitation is not None and self._as_utc(pending_invitation.expires_at) < get_utc_now():
@@ -233,22 +571,27 @@ class AuthController:
                     detail="Failed to create OTP challenge",
                 )
 
-            self.email_service.send_email(
+            email_template = build_salesperson_otp_email(
+                name=user.first_name,
+                otp=otp,
+            )
+            await send_email(
+                subject=email_template["subject"],
                 to_email=email,
-                subject="SalesPilot AI Login OTP",
-                body=(
-                    "Your SalesPilot AI login OTP is:\n\n"
-                    f"{otp}\n\n"
-                    "This OTP expires in 10 minutes."
-                ),
+                text=email_template["text"],
+                html=email_template["html"],
             )
 
-            return {
-                "message": "OTP sent successfully to salesperson email",
-            }
+            return self._build_otp_response(
+                message=(
+                    "Invitation token verified. OTP generated for the invited "
+                    "email address. Check the inbox or spam folder."
+                ),
+                otp=otp,
+            )
         except HTTPException:
             raise
-        except smtplib.SMTPException as error:
+        except EmailDeliveryError as error:
             logging.error(
                 f"Error in AuthController.salesperson_request_otp email send: {error}"
             )
@@ -258,6 +601,146 @@ class AuthController:
             )
         except Exception as error:
             logging.error(f"Error in AuthController.salesperson_request_otp: {error}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Internal Server Error",
+            )
+
+    async def salesperson_login(self, *, email: str, password: str) -> dict:
+        """Validate salesperson credentials and send an OTP for returning login.
+
+        Args:
+            email (str): Salesperson email address used for login.
+            password (str): Plain-text salesperson password.
+
+        Returns:
+            dict: OTP dispatch acknowledgement payload.
+
+        Raises:
+            HTTPException: If the salesperson credentials are invalid or the user is inactive.
+        """
+        try:
+            logging.info("Executing AuthController.salesperson_login")
+            user = await self.crud_user.get_by_email(email=email)
+            if user is None or user.role != UserRole.SALESPERSON:
+                logging.warning(f"Salesperson user not found for email {email}")
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid email or password",
+                )
+
+            if not user.is_active:
+                logging.warning(f"Inactive salesperson attempted login: {email}")
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Salesperson profile setup is not complete yet",
+                )
+
+            if not verify_password(password, user.password_hash):
+                logging.warning(f"Invalid salesperson password attempt for {email}")
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid email or password",
+                )
+
+            otp = generate_otp()
+            updated_user = await self.crud_user.update(
+                id=str(user.id),
+                obj_in={
+                    "otp": {
+                        "code_hash": hash_otp(otp),
+                        "purpose": OtpPurpose.SALESPERSON_LOGIN,
+                        "expires_at": get_utc_now() + timedelta(minutes=10),
+                        "requested_at": get_utc_now(),
+                        "attempt_count": 0,
+                        "attempt_window_started_at": get_utc_now(),
+                    }
+                },
+            )
+            if updated_user is None:
+                logging.error(f"Failed to persist returning salesperson OTP state for {email}")
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Failed to create OTP challenge",
+                )
+
+            email_template = build_salesperson_otp_email(
+                name=updated_user.first_name,
+                otp=otp,
+            )
+            await send_email(
+                subject=email_template["subject"],
+                to_email=email,
+                text=email_template["text"],
+                html=email_template["html"],
+            )
+
+            return self._build_otp_response(
+                message=(
+                    "Salesperson credentials verified. OTP sent to the registered "
+                    "email address. Check the inbox or spam folder."
+                ),
+                otp=otp,
+            )
+        except HTTPException:
+            raise
+        except EmailDeliveryError as error:
+            logging.error(
+                f"Error in AuthController.salesperson_login email send: {error}"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Failed to deliver salesperson OTP email",
+            )
+        except Exception as error:
+            logging.error(f"Error in AuthController.salesperson_login: {error}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Internal Server Error",
+            )
+
+    async def verify_otp(self, *, email: str, otp: str) -> dict:
+        """Verify a unified OTP and complete login based on the stored user role.
+
+        Args:
+            email (str): User email address associated with the OTP.
+            otp (str): Plain OTP value entered by the user.
+
+        Returns:
+            dict: Auth success payload with JWT and user profile.
+
+        Raises:
+            HTTPException: If the email or OTP is invalid, expired, or unsupported.
+        """
+        try:
+            logging.info("Executing AuthController.verify_otp")
+            user = await self.crud_user.get_by_email(email=email)
+            if user is None:
+                logging.warning(
+                    f"Unified OTP verification attempted with unknown email {email}"
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="No account found for this email",
+                )
+
+            if user.role == UserRole.ADMIN:
+                return await self.verify_admin_otp(email=email, otp=otp)
+
+            if user.role == UserRole.SALESPERSON:
+                return await self.salesperson_verify_otp(email=email, otp=otp)
+
+            logging.warning(
+                f"Unified OTP verification attempted with unsupported role {user.role}"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This user role is not allowed to sign in here",
+            )
+        except HTTPException:
+            raise
+        except Exception as error:
+            logging.error(f"Error in AuthController.verify_otp: {error}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Internal Server Error",
@@ -371,6 +854,130 @@ class AuthController:
             raise
         except Exception as error:
             logging.error(f"Error in AuthController.salesperson_verify_otp: {error}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Internal Server Error",
+            )
+
+    async def salesperson_complete_profile(
+        self,
+        *,
+        invitation_token: str,
+        email: str,
+        first_name: str,
+        last_name: str,
+        otp: str,
+        password: str,
+    ) -> dict:
+        """Complete salesperson onboarding after invitation acceptance.
+
+        Verifies the invitation token and OTP, stores the salesperson profile
+        details, saves a real password, activates the account, and returns the
+        signed login response for the new workspace session.
+
+        Args:
+            invitation_token (str): Invitation token copied from the invitation email.
+            email (str): Invited salesperson email address.
+            first_name (str): Salesperson first name entered during onboarding.
+            last_name (str): Salesperson last name entered during onboarding.
+            otp (str): OTP value sent to the invited email.
+            password (str): Newly created salesperson password.
+
+        Returns:
+            dict: Auth success payload with JWT and user profile.
+
+        Raises:
+            HTTPException: If the invitation, OTP, or salesperson state is invalid.
+        """
+        try:
+            logging.info("Executing AuthController.salesperson_complete_profile")
+            invitation = await self._get_valid_invitation_for_token(
+                token=invitation_token,
+                email=email,
+            )
+            user = await self._ensure_salesperson_user_for_invitation(
+                invitation=invitation
+            )
+
+            if user.otp is None or user.otp.purpose != OtpPurpose.SALESPERSON_LOGIN:
+                logging.warning(f"No active salesperson OTP found for {email}")
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="No active OTP found for this email",
+                )
+
+            if self._as_utc(user.otp.expires_at) < get_utc_now():
+                logging.warning(f"Expired salesperson OTP attempted for {email}")
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="OTP has expired",
+                )
+
+            if not verify_hashed_otp(otp, user.otp.code_hash):
+                attempt_count = min(user.otp.attempt_count + 1, 5)
+                await self.crud_user.update(
+                    id=str(user.id),
+                    obj_in={
+                        "otp": {
+                            "code_hash": user.otp.code_hash,
+                            "purpose": user.otp.purpose,
+                            "expires_at": user.otp.expires_at,
+                            "requested_at": user.otp.requested_at,
+                            "attempt_count": attempt_count,
+                            "attempt_window_started_at": user.otp.attempt_window_started_at,
+                        }
+                    },
+                )
+                logging.warning(f"Invalid salesperson OTP attempt for {email}")
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Invalid OTP",
+                )
+
+            updated_user = await self.crud_user.update(
+                id=str(user.id),
+                obj_in={
+                    "first_name": first_name,
+                    "last_name": last_name,
+                    "password_hash": encrypt_password(password),
+                    "otp": None,
+                    "is_active": True,
+                    "last_login_at": get_utc_now(),
+                    "auth_metadata": {
+                        **(user.auth_metadata or {}),
+                        "invited_via_email": True,
+                        "profile_completed_at": get_utc_now().isoformat(),
+                    },
+                },
+            )
+            if updated_user is None:
+                logging.error(f"Failed to complete salesperson profile for {email}")
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Failed to complete salesperson profile",
+                )
+
+            if invitation.status == InvitationStatus.PENDING:
+                await self.crud_invitation.update(
+                    id=str(invitation.id),
+                    obj_in={
+                        "status": InvitationStatus.ACCEPTED,
+                        "accepted_at": get_utc_now(),
+                        "first_name": first_name,
+                        "last_name": last_name,
+                    },
+                )
+
+            return {
+                "access_token": signJWT(user_role=updated_user.role, id=str(updated_user.id)),
+                "token_type": "bearer",
+                "user": self._serialize_user_profile(updated_user),
+                "last_login_at": updated_user.last_login_at,
+            }
+        except HTTPException:
+            raise
+        except Exception as error:
+            logging.error(f"Error in AuthController.salesperson_complete_profile: {error}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Internal Server Error",

@@ -11,12 +11,13 @@ from core.apis.schemas.responses_schemas.conversation_response import (
 )
 from core.controller.conversation_controller import ConversationController
 from core.controller.training_session_controller import TrainingSessionController
+from core.cruds.training_session_crud import CRUDTrainingSession
 from core.cruds.user_crud import CRUDUser
 from core.models.user_model import UserRole
 
 conversation_router = APIRouter(prefix="/v1/conversations", tags=["conversations"])
 logging = logger(__name__)
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/v1/auth/salesperson/verify-otp")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/v1/auth/verify-otp")
 
 
 async def _require_salesperson(token: str):
@@ -60,6 +61,41 @@ async def _require_salesperson(token: str):
         )
 
     return user
+
+
+async def _require_salesperson_session_access(
+    *,
+    training_session_id: str,
+    salesperson_id: str,
+) -> None:
+    """Ensure one salesperson can access only their own training session data.
+
+    Args:
+        training_session_id (str): Training session identifier being accessed.
+        salesperson_id (str): Authenticated salesperson user identifier.
+
+    Raises:
+        HTTPException: If the session does not exist or belongs to another salesperson.
+    """
+    training_session = await CRUDTrainingSession().get_by_id(id=training_session_id)
+    if training_session is None:
+        logging.warning(
+            f"Conversation access requested for unknown session {training_session_id}"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Training session not found",
+        )
+
+    if training_session.user_id != salesperson_id:
+        logging.warning(
+            "Salesperson attempted conversation access for another user's session: "
+            f"{training_session_id}"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have access to this conversation",
+        )
 
 
 @conversation_router.get(
@@ -132,7 +168,11 @@ async def get_conversation_detail(
     """
     try:
         logging.info(f"Calling GET /v1/conversations/{training_session_id} endpoint")
-        await _require_salesperson(token=token)
+        user = await _require_salesperson(token=token)
+        await _require_salesperson_session_access(
+            training_session_id=training_session_id,
+            salesperson_id=str(user.id),
+        )
         response = await ConversationController().get_conversation_detail(
             training_session_id=training_session_id
         )
@@ -177,7 +217,11 @@ async def sync_conversation(
         logging.info(
             f"Calling POST /v1/conversations/{training_session_id}/sync endpoint"
         )
-        await _require_salesperson(token=token)
+        user = await _require_salesperson(token=token)
+        await _require_salesperson_session_access(
+            training_session_id=training_session_id,
+            salesperson_id=str(user.id),
+        )
         response = await ConversationController().sync_conversation(
             training_session_id=training_session_id
         )
