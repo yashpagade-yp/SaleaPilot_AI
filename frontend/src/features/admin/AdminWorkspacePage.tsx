@@ -24,7 +24,7 @@ interface AdminConversationItem {
   salespersonEmail: string;
   agentLabel: string;
   conversationStatus: string;
-  transcriptPreview: string;
+  transcript: string | null;
   fetchedAt: string | null;
   trainingSessionId: string;
 }
@@ -51,9 +51,11 @@ export function AdminWorkspacePage() {
   const [loadingConversations, setLoadingConversations] = useState(false);
   const [busyAction, setBusyAction] = useState<string>("");
   const [message, setMessage] = useState("");
-  const [deliveryPreview, setDeliveryPreview] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const [inviteEmail, setInviteEmail] = useState("");
+  const [activeConvFilter, setActiveConvFilter] = useState("all");
+  const [expandedConvId, setExpandedConvId] = useState<string | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
 
   const selectedSalesperson = useMemo(
     () => salespeople.find((salesperson) => salesperson.id === selectedSalespersonId) || null,
@@ -81,15 +83,14 @@ export function AdminWorkspacePage() {
           return response.items.map((conversation): AdminConversationItem => {
             const matchedAgent =
               currentAgents.find((agent) => agent.agent_id === conversation.agent_id) || null;
-            return {
+              return {
               id: conversation.id,
               salespersonId: salesperson.id,
               salespersonName: `${salesperson.first_name} ${salesperson.last_name}`,
               salespersonEmail: salesperson.email,
               agentLabel: matchedAgent ? matchedAgent.title : conversation.agent_id,
               conversationStatus: conversation.conversation_status,
-              transcriptPreview:
-                conversation.transcript?.slice(0, 180) || "Transcript not synced yet.",
+              transcript: conversation.transcript || null,
               fetchedAt: conversation.fetched_at,
               trainingSessionId: conversation.training_session_id,
             };
@@ -199,17 +200,11 @@ export function AdminWorkspacePage() {
 
     setBusyAction("invite");
     setMessage("");
-    setDeliveryPreview("");
     setErrorMessage("");
 
     try {
       const response = await sendInvitation(token, { email: inviteEmail });
       setMessage(`Invitation sent to ${response.email}.`);
-      setDeliveryPreview(
-        response.dev_invitation_token
-          ? `Development invitation code: ${response.dev_invitation_token}`
-          : "",
-      );
       setInviteEmail("");
       await refreshDashboard();
     } catch (error) {
@@ -226,7 +221,6 @@ export function AdminWorkspacePage() {
 
     setBusyAction(`status-${salespersonId}`);
     setMessage("");
-    setDeliveryPreview("");
     setErrorMessage("");
 
     try {
@@ -251,7 +245,6 @@ export function AdminWorkspacePage() {
 
     setBusyAction(`delete-${salespersonId}`);
     setMessage("");
-    setDeliveryPreview("");
     setErrorMessage("");
 
     try {
@@ -327,28 +320,57 @@ export function AdminWorkspacePage() {
         <section className="admin-management-grid">
           {renderInvitePanel()}
 
-          <article className="panel">
-            <div className="panel-header">
+          <article className="panel quick-stats-panel">
+            <div className="panel-header" style={{ marginBottom: "12px" }}>
               <div>
-                <span className="eyebrow">Access workspace</span>
-                <h2>Invite and manage from one place</h2>
+                <span className="eyebrow">Quick stats</span>
+                <h2 style={{ fontSize: "1.35rem", margin: "6px 0 0" }}>Workspace at a glance</h2>
               </div>
             </div>
-            <div className="detail-stack">
-              <div className="detail-item">
-                <strong>Invitation flow</strong>
-                <span>Send email access directly to a salesperson from this dashboard.</span>
+            <div className="quick-stats-grid">
+              <div className="quick-stat-item">
+                <span className="quick-stat-icon">📨</span>
+                <div>
+                  <strong>Last invite sent</strong>
+                  <span>
+                    {salespeople
+                      .filter((sp) => sp.latest_invitation_sent_at)
+                      .sort((a, b) => new Date(b.latest_invitation_sent_at!).getTime() - new Date(a.latest_invitation_sent_at!).getTime())[0]
+                      ?.latest_invitation_sent_at
+                      ? formatDate(
+                          salespeople
+                            .filter((sp) => sp.latest_invitation_sent_at)
+                            .sort((a, b) => new Date(b.latest_invitation_sent_at!).getTime() - new Date(a.latest_invitation_sent_at!).getTime())[0]
+                            .latest_invitation_sent_at
+                        )
+                      : "None yet"}
+                  </span>
+                </div>
               </div>
-              <div className="detail-item">
-                <strong>Invited now</strong>
-                <span>{invitedCount} salesperson accounts are waiting to complete access.</span>
+              <div className="quick-stat-item">
+                <span className="quick-stat-icon">⏳</span>
+                <div>
+                  <strong>Pending invitations</strong>
+                  <span>{invitedCount} waiting to join</span>
+                </div>
               </div>
-              <div className="detail-item">
-                <strong>Admin management</strong>
-                <span>Use the left navigation if you want the focused account-management workspace.</span>
+              <div className="quick-stat-item">
+                <span className="quick-stat-icon">🤖</span>
+                <div>
+                  <strong>Active agents</strong>
+                  <span>{agents.filter((a) => a.is_active).length} of {agents.length} online</span>
+                </div>
+              </div>
+              <div className="quick-stat-item">
+                <span className="quick-stat-icon">✅</span>
+                <div>
+                  <strong>Active salespeople</strong>
+                  <span>{activeCount} of {salespeople.length} active</span>
+                </div>
               </div>
             </div>
           </article>
+
         </section>
 
         <section className="panel">
@@ -412,7 +434,10 @@ export function AdminWorkspacePage() {
                             disabled={busyAction === `delete-${salesperson.id}`}
                             onClick={(event) => {
                               event.stopPropagation();
-                              void handleDelete(salesperson.id);
+                              setDeleteConfirm({
+                                id: salesperson.id,
+                                name: `${salesperson.first_name} ${salesperson.last_name}`,
+                              });
                             }}
                             type="button"
                           >
@@ -489,7 +514,46 @@ export function AdminWorkspacePage() {
     );
   }
 
+  function getInitials(name: string): string {
+    const parts = name.trim().split(/\s+/);
+    if (parts.length >= 2) return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+    return (parts[0]?.slice(0, 2) ?? "SP").toUpperCase();
+  }
+
+  function getStatusClass(status: string): string {
+    const s = status.toLowerCase();
+    if (s === "completed") return "completed";
+    if (s === "failed") return "failed";
+    if (s === "in_progress") return "in-progress";
+    if (s === "disconnected") return "disconnected";
+    return "disconnected";
+  }
+
+  function parseTranscriptTurns(text: string): Array<{ role: string; content: string }> {
+    const turns: Array<{ role: string; content: string }> = [];
+    const regex = /(user|assistant):\s*([\s\S]*?)(?=\s*(?:user|assistant):|$)/gi;
+    let match;
+    while ((match = regex.exec(text)) !== null) {
+      const content = match[2].trim();
+      if (content) turns.push({ role: match[1].toLowerCase(), content });
+    }
+    return turns;
+  }
+
   function renderConversationsSection() {
+    const convFilters = [
+      { key: "all", label: "All", count: allConversations.length },
+      { key: "COMPLETED", label: "Completed", count: allConversations.filter((c) => c.conversationStatus === "COMPLETED").length },
+      { key: "FAILED", label: "Failed", count: allConversations.filter((c) => c.conversationStatus === "FAILED").length },
+      { key: "DISCONNECTED", label: "Disconnected", count: allConversations.filter((c) => c.conversationStatus === "DISCONNECTED").length },
+      { key: "IN_PROGRESS", label: "In Progress", count: allConversations.filter((c) => c.conversationStatus === "IN_PROGRESS").length },
+    ];
+
+    const filtered =
+      activeConvFilter === "all"
+        ? allConversations
+        : allConversations.filter((c) => c.conversationStatus === activeConvFilter);
+
     return (
       <section className="panel">
         <div className="panel-header">
@@ -498,24 +562,99 @@ export function AdminWorkspacePage() {
             <h2>Salesperson and agent history</h2>
           </div>
         </div>
+
+        {/* Filter tabs */}
+        <div className="conv-filter-bar">
+          {convFilters.map((f) => (
+            <button
+              key={f.key}
+              className={`conv-filter-tab${activeConvFilter === f.key ? " active" : ""}`}
+              onClick={() => setActiveConvFilter(f.key)}
+              type="button"
+            >
+              {f.label}
+              <span className="conv-filter-count">{f.count}</span>
+            </button>
+          ))}
+        </div>
+
         {loadingConversations ? (
-          <div className="empty-state">Loading conversation workspace...</div>
-        ) : !allConversations.length ? (
-          <div className="empty-state">
-            No saved conversations are available across the sales team yet.
-          </div>
+          <div className="empty-state">Loading conversations...</div>
+        ) : !filtered.length ? (
+          <div className="empty-state">No conversations match this filter.</div>
         ) : (
-          <div className="stack-list">
-            {allConversations.map((conversation) => (
-              <div className="list-card" key={conversation.id}>
-                <strong>{conversation.salespersonName}</strong>
-                <span>{conversation.salespersonEmail}</span>
-                <span>Agent: {conversation.agentLabel}</span>
-                <span>Status: {conversation.conversationStatus.replaceAll("_", " ")}</span>
-                <span>Session {conversation.trainingSessionId}</span>
-                <p>{conversation.transcriptPreview}</p>
-              </div>
-            ))}
+          <div className="conv-list">
+            {filtered.map((conv) => {
+              const initials = getInitials(conv.salespersonName);
+              const statusClass = getStatusClass(conv.conversationStatus);
+              const statusLabel = conv.conversationStatus.replaceAll("_", " ");
+              const isExpanded = expandedConvId === conv.id;
+              const turns = conv.transcript ? parseTranscriptTurns(conv.transcript) : [];
+
+              return (
+                <article className="conv-card" key={conv.id}>
+                  <div className="conv-card-header">
+                    <div className="conv-avatar">{initials}</div>
+                    <div className="conv-info">
+                      <div className="conv-info-primary">
+                        <span className="conv-name">{conv.salespersonName}</span>
+                        <span className="conv-email">{conv.salespersonEmail}</span>
+                      </div>
+                      <div className="conv-meta-row">
+                        <span className="conv-meta-item">
+                          <span className="conv-meta-icon">🤖</span>
+                          {conv.agentLabel}
+                        </span>
+                        {conv.fetchedAt && (
+                          <span className="conv-meta-item">
+                            <span className="conv-meta-icon">📅</span>
+                            {formatDate(conv.fetchedAt)}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <span className={`conv-status-badge ${statusClass}`}>
+                      {statusLabel}
+                    </span>
+                  </div>
+
+                  <div className="conv-card-footer">
+                    {turns.length > 0 ? (
+                      <button
+                        className="conv-toggle-btn"
+                        onClick={() => setExpandedConvId(isExpanded ? null : conv.id)}
+                        type="button"
+                      >
+                        {isExpanded ? "▲ Hide conversation" : "▼ View conversation"}
+                        <span className="conv-filter-count">{turns.length} turns</span>
+                      </button>
+                    ) : (
+                      <span className="conv-no-transcript">Transcript not synced yet</span>
+                    )}
+                  </div>
+
+                  {isExpanded && turns.length > 0 && (
+                    <div className="conv-transcript-panel">
+                      <div className="conv-transcript-turns">
+                        {turns.map((turn, i) => (
+                          <div className={`conv-turn ${turn.role}`} key={i}>
+                            <div className={`conv-turn-avatar ${turn.role}`}>
+                              {turn.role === "user" ? "SP" : "AI"}
+                            </div>
+                            <div className={`conv-turn-bubble ${turn.role}`}>
+                              <div className={`conv-turn-label ${turn.role}`}>
+                                {turn.role === "user" ? "Salesperson" : "AI Agent"}
+                              </div>
+                              {turn.content}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </article>
+              );
+            })}
           </div>
         )}
       </section>
@@ -634,11 +773,43 @@ export function AdminWorkspacePage() {
         </header>
 
         {message ? <div className="message success">{message}</div> : null}
-        {deliveryPreview ? <div className="message success">{deliveryPreview}</div> : null}
         {errorMessage ? <div className="message error">{errorMessage}</div> : null}
 
         {renderActiveSection()}
       </section>
+      {deleteConfirm && (
+        <div className="confirm-overlay" onClick={() => setDeleteConfirm(null)}>
+          <div className="confirm-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="confirm-icon">⚠️</div>
+            <h3>Delete salesperson</h3>
+            <p>
+              Are you sure you want to delete{" "}
+              <strong>{deleteConfirm.name}</strong>?{" "}
+              This action cannot be undone.
+            </p>
+            <div className="confirm-actions">
+              <button
+                className="button button-secondary"
+                onClick={() => setDeleteConfirm(null)}
+                type="button"
+              >
+                Cancel
+              </button>
+              <button
+                className="button button-danger"
+                disabled={busyAction === `delete-${deleteConfirm.id}`}
+                onClick={() => {
+                  void handleDelete(deleteConfirm.id);
+                  setDeleteConfirm(null);
+                }}
+                type="button"
+              >
+                {busyAction === `delete-${deleteConfirm.id}` ? "Deleting..." : "Yes, delete"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

@@ -38,6 +38,8 @@ export function SalesWorkspacePage({
   const [busyAction, setBusyAction] = useState("");
   const [message, setMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
+  const [activeConvFilter, setActiveConvFilter] = useState("all");
+  const [expandedConvId, setExpandedConvId] = useState<string | null>(null);
 
   async function bootstrapWorkspace() {
     if (!token) {
@@ -176,6 +178,31 @@ export function SalesWorkspacePage({
     }
   }
 
+  function getAgentLabel(agentId: string): string {
+    const scenario = scenarios.find((s) => s.agent_id === agentId);
+    return scenario ? scenario.title : "Practice session";
+  }
+
+  function getStatusClass(status: string): string {
+    const s = status.toLowerCase();
+    if (s === "completed") return "completed";
+    if (s === "failed") return "failed";
+    if (s === "in_progress") return "in-progress";
+    if (s === "disconnected") return "disconnected";
+    return "disconnected";
+  }
+
+  function parseTranscriptTurns(text: string): Array<{ role: string; content: string }> {
+    const turns: Array<{ role: string; content: string }> = [];
+    const regex = /(user|assistant):\s*([\s\S]*?)(?=\s*(?:user|assistant):|$)/gi;
+    let match;
+    while ((match = regex.exec(text)) !== null) {
+      const content = match[2].trim();
+      if (content) turns.push({ role: match[1].toLowerCase(), content });
+    }
+    return turns;
+  }
+
   function renderDashboard() {
     return (
       <>
@@ -258,14 +285,33 @@ export function SalesWorkspacePage({
             </Link>
           </div>
           {conversations.length ? (
-            <div className="stack-list">
-              {conversations.slice(0, 3).map((conversation) => (
-                <div className="list-card" key={conversation.id}>
-                  <strong>{conversation.conversation_status.replaceAll("_", " ")}</strong>
-                  <span>{conversation.training_session_id}</span>
-                  <p>{conversation.transcript?.slice(0, 160) || "Transcript will appear after sync."}</p>
-                </div>
-              ))}
+            <div className="conv-list" style={{ padding: 0 }}>
+              {conversations.slice(0, 3).map((conv) => {
+                const statusClass = getStatusClass(conv.conversation_status);
+                const statusLabel = conv.conversation_status.replaceAll("_", " ");
+                const agentLabel = getAgentLabel(conv.agent_id);
+                return (
+                  <article className="conv-card" key={conv.id}>
+                    <div className="conv-card-header">
+                      <div className="conv-avatar">{agentLabel.slice(0, 2).toUpperCase()}</div>
+                      <div className="conv-info">
+                        <div className="conv-info-primary">
+                          <span className="conv-name">{agentLabel}</span>
+                        </div>
+                        {conv.fetched_at && (
+                          <div className="conv-meta-row">
+                            <span className="conv-meta-item">
+                              <span className="conv-meta-icon">📅</span>
+                              {formatDate(conv.fetched_at)}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                      <span className={`conv-status-badge ${statusClass}`}>{statusLabel}</span>
+                    </div>
+                  </article>
+                );
+              })}
             </div>
           ) : (
             <div className="empty-state">No conversations yet. Open Agents to start your first session.</div>
@@ -307,19 +353,40 @@ export function SalesWorkspacePage({
         <article className="panel">
           <div className="panel-header">
             <div>
-              <span className="eyebrow">Session direction</span>
-              <h2>What happens next</h2>
+              <span className="eyebrow">Session preview</span>
+              <h2>What a session feels like</h2>
             </div>
           </div>
           <div className="voice-preview-card">
             <div className="voice-orb-shell compact">
               <div className="voice-orb" />
+              <div className="voice-orb-ring" />
+              <div className="voice-orb-ring ring-two" />
             </div>
-            <p>
-              Your live training should feel like a focused AI simulation, not a meeting grid. The
-              session studio will give you one voice-centered surface with the active persona and the
-              secure room launch point.
-            </p>
+            <p className="voice-preview-hint">Hover the orb to feel the interaction</p>
+          </div>
+
+          <div className="preview-chat">
+            <div className="preview-bubble agent">
+              <span className="preview-label">AI Agent</span>
+              Hi! Thanks for reaching out. How can I help you today?
+            </div>
+            <div className="preview-bubble user">
+              <span className="preview-label">You</span>
+              I'm looking for a CRM solution for my sales team.
+            </div>
+            <div className="preview-bubble agent">
+              <span className="preview-label">AI Agent</span>
+              Great choice! Let me walk you through our top features. What's your team size?
+            </div>
+            <div className="preview-bubble user">
+              <span className="preview-label">You</span>
+              We have around 12 reps. What does the pricing look like?
+            </div>
+            <div className="preview-bubble agent">
+              <span className="preview-label">AI Agent</span>
+              For a team of 12, our Pro plan would be a perfect fit. Shall I break down the details?
+            </div>
           </div>
         </article>
       </section>
@@ -327,62 +394,133 @@ export function SalesWorkspacePage({
   }
 
   function renderConversations() {
-    return (
-      <section className="two-column-grid">
-        <article className="panel">
-          <div className="panel-header">
-            <div>
-              <span className="eyebrow">Saved voice sessions</span>
-              <h2>Conversation history</h2>
-            </div>
-          </div>
-          {conversations.length ? (
-            <div className="stack-list">
-              {conversations.map((conversation) => (
-                <div
-                  className={`list-card interactive ${selectedConversationId === conversation.training_session_id ? "selected-card" : ""}`}
-                  key={conversation.id}
-                  onClick={() => setSelectedConversationId(conversation.training_session_id)}
-                >
-                  <strong>{conversation.conversation_status.replaceAll("_", " ")}</strong>
-                  <span>{formatDate(conversation.fetched_at)}</span>
-                  <p>{conversation.transcript?.slice(0, 120) || "Transcript will appear after sync."}</p>
-                  <button
-                    className="button button-secondary"
-                    disabled={busyAction === `sync-${conversation.training_session_id}`}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      void handleSyncConversation(conversation.training_session_id);
-                    }}
-                    type="button"
-                  >
-                    {busyAction === `sync-${conversation.training_session_id}` ? "Syncing..." : "Sync transcript"}
-                  </button>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="empty-state">No saved conversations found for this salesperson yet.</div>
-          )}
-        </article>
+    const convFilters = [
+      { key: "all", label: "All", count: conversations.length },
+      { key: "COMPLETED", label: "Completed", count: conversations.filter((c) => c.conversation_status === "COMPLETED").length },
+      { key: "FAILED", label: "Failed", count: conversations.filter((c) => c.conversation_status === "FAILED").length },
+      { key: "DISCONNECTED", label: "Disconnected", count: conversations.filter((c) => c.conversation_status === "DISCONNECTED").length },
+      { key: "IN_PROGRESS", label: "In Progress", count: conversations.filter((c) => c.conversation_status === "IN_PROGRESS").length },
+    ];
 
-        <article className="panel">
-          <div className="panel-header">
-            <div>
-              <span className="eyebrow">Transcript detail</span>
-              <h2>Open conversation</h2>
-            </div>
+    const filtered =
+      activeConvFilter === "all"
+        ? conversations
+        : conversations.filter((c) => c.conversation_status === activeConvFilter);
+
+    return (
+      <section className="panel">
+        <div className="panel-header">
+          <div>
+            <span className="eyebrow">Saved voice sessions</span>
+            <h2>Conversation history</h2>
           </div>
-          {selectedConversation ? (
-            <div className="detail-stack">
-              <div className="detail-item"><strong>Status</strong><span>{selectedConversation.conversation_status}</span></div>
-              <div className="detail-item"><strong>Fetched</strong><span>{formatDate(selectedConversation.fetched_at)}</span></div>
-              <div className="transcript-box">{selectedConversation.transcript || "Transcript is not available yet. Run sync after the live practice session ends."}</div>
-            </div>
-          ) : (
-            <div className="empty-state">Choose a conversation to inspect transcript detail.</div>
-          )}
-        </article>
+        </div>
+
+        <div className="conv-filter-bar">
+          {convFilters.map((f) => (
+            <button
+              key={f.key}
+              className={`conv-filter-tab${activeConvFilter === f.key ? " active" : ""}`}
+              onClick={() => setActiveConvFilter(f.key)}
+              type="button"
+            >
+              {f.label}
+              <span className="conv-filter-count">{f.count}</span>
+            </button>
+          ))}
+        </div>
+
+        {!filtered.length ? (
+          <div className="empty-state">
+            {conversations.length
+              ? "No conversations match this filter."
+              : "No conversations yet. Open Agents to start your first session."}
+          </div>
+        ) : (
+          <div className="conv-list">
+            {filtered.map((conv) => {
+              const agentLabel = getAgentLabel(conv.agent_id);
+              const statusClass = getStatusClass(conv.conversation_status);
+              const statusLabel = conv.conversation_status.replaceAll("_", " ");
+              const isExpanded = expandedConvId === conv.id;
+              const turns = conv.transcript ? parseTranscriptTurns(conv.transcript) : [];
+              const isSyncing = busyAction === `sync-${conv.training_session_id}`;
+
+              return (
+                <article className="conv-card" key={conv.id}>
+                  <div className="conv-card-header">
+                    <div className="conv-avatar">{agentLabel.slice(0, 2).toUpperCase()}</div>
+                    <div className="conv-info">
+                      <div className="conv-info-primary">
+                        <span className="conv-name">{agentLabel}</span>
+                      </div>
+                      <div className="conv-meta-row">
+                        {conv.fetched_at && (
+                          <span className="conv-meta-item">
+                            <span className="conv-meta-icon">📅</span>
+                            {formatDate(conv.fetched_at)}
+                          </span>
+                        )}
+                        <span className="conv-meta-item">
+                          <span className="conv-meta-icon">🎙️</span>
+                          Voice session
+                        </span>
+                      </div>
+                    </div>
+                    <span className={`conv-status-badge ${statusClass}`}>{statusLabel}</span>
+                  </div>
+
+                  <div className="conv-card-footer">
+                    <div className="conv-card-actions">
+                      {turns.length > 0 ? (
+                        <button
+                          className="conv-toggle-btn"
+                          onClick={() => setExpandedConvId(isExpanded ? null : conv.id)}
+                          type="button"
+                        >
+                          {isExpanded ? "▲ Hide conversation" : "▼ View conversation"}
+                          <span className="conv-filter-count">{turns.length} turns</span>
+                        </button>
+                      ) : (
+                        <span className="conv-no-transcript">Transcript not synced yet</span>
+                      )}
+                      {!conv.transcript && (
+                        <button
+                          className="conv-sync-btn"
+                          disabled={isSyncing}
+                          onClick={() => void handleSyncConversation(conv.training_session_id)}
+                          type="button"
+                        >
+                          {isSyncing ? "Syncing..." : "Sync transcript"}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {isExpanded && turns.length > 0 && (
+                    <div className="conv-transcript-panel">
+                      <div className="conv-transcript-turns">
+                        {turns.map((turn, i) => (
+                          <div className={`conv-turn ${turn.role}`} key={i}>
+                            <div className={`conv-turn-avatar ${turn.role}`}>
+                              {turn.role === "user" ? "SP" : "AI"}
+                            </div>
+                            <div className={`conv-turn-bubble ${turn.role}`}>
+                              <div className={`conv-turn-label ${turn.role}`}>
+                                {turn.role === "user" ? "You" : agentLabel}
+                              </div>
+                              {turn.content}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </article>
+              );
+            })}
+          </div>
+        )}
       </section>
     );
   }

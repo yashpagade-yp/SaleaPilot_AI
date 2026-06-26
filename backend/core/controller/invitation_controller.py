@@ -256,11 +256,7 @@ class InvitationController:
                 "expires_at": invitation.expires_at,
                 "accepted_at": invitation.accepted_at,
                 "delivery_channel": "email",
-                "dev_invitation_token": (
-                    invitation.token
-                    if self._should_expose_dev_delivery_preview()
-                    else None
-                ),
+                "dev_invitation_token": None,
             }
         except HTTPException:
             raise

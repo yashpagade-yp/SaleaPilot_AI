@@ -96,9 +96,7 @@ class AuthController:
         return {
             "message": message,
             "delivery_channel": "email",
-            "dev_otp": (
-                otp if AuthController._should_expose_dev_delivery_preview() else None
-            ),
+            "dev_otp": None,
         }
 
     @staticmethod
