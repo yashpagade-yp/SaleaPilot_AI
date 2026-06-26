@@ -1,24 +1,216 @@
-import { useState } from "react";
+import DailyIframe, { DailyCall } from "@daily-co/daily-js";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { generateFeedback, syncConversation } from "../../lib/api/sales";
 import { clearActiveSession, loadActiveSession } from "../../lib/storage";
 
 type StudioMode = "voice" | "review";
-type ConversationState = "ready" | "active" | "paused";
+type CallState = "idle" | "joining" | "joined" | "left" | "error";
+type OrbState = "idle" | "listening" | "speaking";
 
 function scenarioLabel(value: string) {
   return value.charAt(0).toUpperCase() + value.slice(1).toLowerCase();
+}
+
+function callStateLabel(state: CallState): string {
+  switch (state) {
+    case "idle":
+      return "Ready";
+    case "joining":
+      return "Connecting...";
+    case "joined":
+      return "Live";
+    case "left":
+      return "Call ended";
+    case "error":
+      return "Error";
+  }
+}
+
+function getOrbClass(state: CallState, orb: OrbState): string {
+  if (state === "joining") return "is-joining";
+  if (state !== "joined") return "is-idle";
+  if (orb === "listening") return "is-listening";
+  return "is-speaking";
 }
 
 export function SessionStudioPage() {
   const { token } = useAuth();
   const [activeSession, setActiveSession] = useState(() => loadActiveSession());
   const [mode, setMode] = useState<StudioMode>("voice");
-  const [conversationState, setConversationState] = useState<ConversationState>("ready");
+  const [callState, setCallState] = useState<CallState>("idle");
   const [message, setMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const [busyAction, setBusyAction] = useState("");
+  const [orbState, setOrbState] = useState<OrbState>("idle");
+  const callRef = useRef<DailyCall | null>(null);
+  // Track every remote audio element so we can stop and remove them on cleanup
+  const audioElementsRef = useRef<HTMLAudioElement[]>([]);
+  // Debounce timer — resets orb to "speaking" after salesperson stops talking
+  const orbTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function cleanupAudioElements() {
+    audioElementsRef.current.forEach((el) => {
+      el.pause();
+      el.srcObject = null;
+    });
+    audioElementsRef.current = [];
+  }
+
+  // Cleanup on unmount — leave call and destroy the object if still active
+  useEffect(() => {
+    return () => {
+      if (orbTimerRef.current) clearTimeout(orbTimerRef.current);
+      cleanupAudioElements();
+      if (callRef.current) {
+        void callRef.current.leave().catch(() => null);
+        callRef.current.destroy();
+        callRef.current = null;
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function handleStartCall() {
+    if (!activeSession?.session.daily_room || !activeSession?.session.daily_token) {
+      setErrorMessage(
+        "No Daily room or token found for this session. The backend may not have returned call details.",
+      );
+      return;
+    }
+
+    // If already in a call, do nothing
+    if (callRef.current && callState === "joined") {
+      return;
+    }
+
+    setErrorMessage("");
+    setMessage("");
+    setCallState("joining");
+
+    try {
+      // Create call object if not already created
+      if (!callRef.current) {
+        callRef.current = DailyIframe.createCallObject({
+          // Audio-only — no camera for a voice training experience
+          videoSource: false,
+          audioSource: true,
+        });
+
+        // Wire Daily events to React state
+        callRef.current.on("joining-meeting", () => {
+          setCallState("joining");
+          setMessage("Connecting to your AI practice session...");
+        });
+
+        callRef.current.on("joined-meeting", () => {
+          setCallState("joined");
+          setOrbState("speaking"); // AI typically greets first
+          setMessage("You are now live with the AI persona. Start speaking.");
+          setMode("voice");
+          // Start observing local mic audio level (fires every ~100ms)
+          try { callRef.current?.startLocalAudioLevelObserver(100); } catch { /* ignore */ }
+        });
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        callRef.current.on("local-audio-level" as any, (event: any) => {
+          if ((event as { audioLevel?: number }).audioLevel ?? 0 > 0.015) {
+            setOrbState("listening"); // salesperson is speaking — orb listens
+            if (orbTimerRef.current) clearTimeout(orbTimerRef.current);
+            // After 700 ms of silence assume it's the AI's turn again
+            orbTimerRef.current = setTimeout(() => setOrbState("speaking"), 700);
+          }
+        });
+
+        callRef.current.on("left-meeting", () => {
+          setCallState("left");
+          setOrbState("idle");
+          if (orbTimerRef.current) clearTimeout(orbTimerRef.current);
+          setMessage("Call ended. You can sync the transcript and generate feedback now.");
+          setMode("review");
+          cleanupAudioElements();
+          callRef.current?.destroy();
+          callRef.current = null;
+        });
+
+        callRef.current.on("error", (event) => {
+          const detail = (event as { errorMsg?: string }).errorMsg ?? "An unexpected call error occurred.";
+          setCallState("error");
+          setErrorMessage(`Call error: ${detail}`);
+          cleanupAudioElements();
+          callRef.current?.destroy();
+          callRef.current = null;
+        });
+
+        // KEY FIX: createCallObject() is headless — remote audio tracks are NOT
+        // automatically rendered. We must manually create an <audio> element for
+        // every incoming remote track (the Eigi bot) so the user can hear it.
+        callRef.current.on("track-started", (event) => {
+          if (!event.participant || event.participant.local) return;
+          const track = event.track;
+          if (track.kind !== "audio") return;
+
+          const audioEl = new Audio();
+          audioEl.autoplay = true;
+          audioEl.srcObject = new MediaStream([track]);
+          audioEl.play().catch(() => {
+            // Autoplay may be blocked; retry on next user gesture
+          });
+          audioElementsRef.current.push(audioEl);
+        });
+
+        // Clean up individual audio elements when a remote track stops
+        callRef.current.on("track-stopped", (event) => {
+          if (!event.participant || event.participant.local) return;
+          const stoppedTrack = event.track;
+          audioElementsRef.current = audioElementsRef.current.filter((el) => {
+            const stream = el.srcObject as MediaStream | null;
+            if (!stream) return false;
+            const hasTrack = stream.getTracks().some((t) => t.id === stoppedTrack.id);
+            if (hasTrack) {
+              el.pause();
+              el.srcObject = null;
+              return false;
+            }
+            return true;
+          });
+        });
+      }
+
+      await callRef.current.join({
+        url: activeSession.session.daily_room,
+        token: activeSession.session.daily_token,
+        // Keep camera off — voice training only
+        startVideoOff: true,
+        startAudioOff: false,
+      });
+    } catch (error) {
+      setCallState("error");
+      setErrorMessage(
+        error instanceof Error ? error.message : "Unable to join the Daily call room.",
+      );
+      if (callRef.current) {
+        callRef.current.destroy();
+        callRef.current = null;
+      }
+    }
+  }
+
+  async function handleEndCall() {
+    if (!callRef.current) {
+      return;
+    }
+
+    try {
+      await callRef.current.leave();
+      // left-meeting event fires and handles state cleanup
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error ? error.message : "Unable to leave the call cleanly.",
+      );
+    }
+  }
 
   async function handleSync() {
     if (!token || !activeSession) {
@@ -60,30 +252,22 @@ export function SessionStudioPage() {
     }
   }
 
-  function handleStartConversation() {
-    setConversationState("active");
-    setMode("voice");
-    setMessage("Conversation surface is active. Stay inside the studio and continue the practice flow here.");
-    setErrorMessage("");
-  }
-
-  function handlePauseConversation() {
-    setConversationState("paused");
-    setMessage("Conversation paused. You can resume when you are ready.");
-    setErrorMessage("");
-  }
-
   if (!activeSession) {
     return (
       <main className="session-root">
         <div className="panel empty-state wide">
-          No active session is staged right now. Start from <Link to="/workspace/agents">Agents</Link>.
+          No active session is staged right now. Start from{" "}
+          <Link to="/workspace/agents">Agents</Link>.
         </div>
       </main>
     );
   }
 
-  const isActive = conversationState === "active";
+  const isJoined = callState === "joined";
+  const isJoining = callState === "joining";
+  const hasRoom =
+    Boolean(activeSession.session.daily_room) &&
+    Boolean(activeSession.session.daily_token);
 
   return (
     <main className="session-root">
@@ -93,7 +277,9 @@ export function SessionStudioPage() {
             <span className="eyebrow">AI practice studio</span>
             <h1>{activeSession.scenarioTitle}</h1>
             <p>
-              This is the direct SalesPilot conversation surface. No meeting room, no exposed call grid, just the active persona and the actions around your practice flow.
+              This is the direct SalesPilot conversation surface. No meeting
+              room, no exposed call grid — just the active persona and a
+              voice-first AI practice flow.
             </p>
           </div>
           <Link className="button button-secondary" to="/workspace/agents">
@@ -102,24 +288,42 @@ export function SessionStudioPage() {
         </div>
 
         {message ? <div className="message success">{message}</div> : null}
-        {errorMessage ? <div className="message error">{errorMessage}</div> : null}
+        {errorMessage ? (
+          <div className="message error">{errorMessage}</div>
+        ) : null}
+
+        {!hasRoom ? (
+          <div className="message error">
+            This session does not have a Daily room attached. The Eigi call
+            creation may have failed on the backend. Go back to Agents and
+            start a new session.
+          </div>
+        ) : null}
 
         <div className="session-grid">
+          {/* ── Orb panel ─────────────────────────────────────────── */}
           <article className="panel session-orb-panel refined">
             <div className="session-copy centered">
               <strong>Talk directly with the active persona.</strong>
               <span>
-                The orb is now the live face of the session. It should feel like the agent is present inside SalesPilot, not inside a meeting tool.
+                Speak naturally — the AI will respond in real time.
+                Your session is private and voice-only.
               </span>
             </div>
 
-            <div className={`voice-orb-shell stage live ${isActive ? "is-speaking" : "is-idle"}`}>
+            <div
+              className={`voice-orb-shell stage live ${getOrbClass(callState, orbState)}`}
+            >
               <div className="voice-orb-ring ring-one" />
               <div className="voice-orb-ring ring-two" />
               <div className="voice-orb" />
               <div className="voice-core detailed">
-                <strong>{isActive ? "Listening" : conversationState === "paused" ? "Paused" : "Ready"}</strong>
-                <span>{mode === "voice" ? "Voice" : "Review"}</span>
+                <strong>{callStateLabel(callState)}</strong>
+                <span>
+                  {callState === "joined"
+                    ? orbState === "listening" ? "Listening" : "Speaking"
+                    : mode === "voice" ? "Voice" : "Review"}
+                </span>
               </div>
             </div>
 
@@ -132,7 +336,9 @@ export function SessionStudioPage() {
                 Voice
               </button>
               <button
-                className={mode === "review" ? "toggle-pill active" : "toggle-pill"}
+                className={
+                  mode === "review" ? "toggle-pill active" : "toggle-pill"
+                }
                 onClick={() => setMode("review")}
                 type="button"
               >
@@ -143,19 +349,22 @@ export function SessionStudioPage() {
             <div className="session-state-strip">
               <div className="state-chip">
                 <span>Persona</span>
-                <strong>{scenarioLabel(activeSession.scenarioKey)}</strong>
+                <strong>{activeSession.scenarioTitle}</strong>
               </div>
               <div className="state-chip">
-                <span>Status</span>
-                <strong>{isActive ? "Live" : conversationState === "paused" ? "Paused" : "Ready"}</strong>
+                <span>Call</span>
+                <strong>{callStateLabel(callState)}</strong>
               </div>
               <div className="state-chip">
                 <span>Focus</span>
-                <strong>{mode === "voice" ? "Conversation" : "Review"}</strong>
+                <strong>
+                  {mode === "voice" ? "Conversation" : "Review"}
+                </strong>
               </div>
             </div>
           </article>
 
+          {/* ── Side action panel ─────────────────────────────────── */}
           <article className="panel session-side-panel refined">
             <div className="detail-stack soft">
               <div className="detail-item">
@@ -164,57 +373,99 @@ export function SessionStudioPage() {
               </div>
               <div className="detail-item">
                 <strong>Session mode</strong>
-                <span>{mode === "voice" ? "Live AI practice" : "Transcript and coaching actions"}</span>
+                <span>
+                  {mode === "voice"
+                    ? "Live AI practice"
+                    : "Transcript and coaching actions"}
+                </span>
               </div>
               <div className="detail-item">
-                <strong>Experience style</strong>
-                <span>Native SalesPilot conversation surface</span>
+                <strong>Call room</strong>
+                <span className="room-status-pill">
+                  {hasRoom ? (
+                    <><span className="room-status-dot ready" />Room ready</>
+                  ) : (
+                    <><span className="room-status-dot error" />Not available</>
+                  )}
+                </span>
               </div>
             </div>
 
             <div className="action-column">
-              <button
-                className="button button-primary button-block"
-                onClick={handleStartConversation}
-                type="button"
-              >
-                {isActive ? "Conversation in progress" : "Start conversation"}
-              </button>
+              {/* ── Primary call control ──────────────────────────── */}
+              {!isJoined && callState !== "left" ? (
+                <button
+                  className="button button-primary button-block"
+                  disabled={isJoining || !hasRoom}
+                  onClick={() => void handleStartCall()}
+                  type="button"
+                >
+                  {isJoining ? "Connecting..." : "Start conversation"}
+                </button>
+              ) : null}
+
+              {isJoined ? (
+                <button
+                  className="button button-primary button-block"
+                  onClick={() => void handleEndCall()}
+                  type="button"
+                >
+                  End call
+                </button>
+              ) : null}
+
+              {callState === "left" ? (
+                <button
+                  className="button button-secondary button-block"
+                  disabled={!hasRoom}
+                  onClick={() => {
+                    setCallState("idle");
+                    setMessage("");
+                  }}
+                  type="button"
+                >
+                  Start a new call
+                </button>
+              ) : null}
+
+              {/* ── Post-session actions ──────────────────────────── */}
               <button
                 className="button button-secondary button-block"
-                disabled={!isActive}
-                onClick={handlePauseConversation}
-                type="button"
-              >
-                Pause conversation
-              </button>
-              <button
-                className="button button-secondary button-block"
-                disabled={busyAction === "sync"}
+                disabled={busyAction === "sync" || isJoined || isJoining}
                 onClick={() => void handleSync()}
                 type="button"
               >
                 {busyAction === "sync" ? "Syncing..." : "Sync transcript"}
               </button>
+
               <button
                 className="button button-secondary button-block"
-                disabled={busyAction === "feedback"}
+                disabled={busyAction === "feedback" || isJoined || isJoining}
                 onClick={() => void handleFeedback()}
                 type="button"
               >
-                {busyAction === "feedback" ? "Generating..." : "Generate feedback"}
+                {busyAction === "feedback"
+                  ? "Generating..."
+                  : "Generate feedback"}
               </button>
+
               <button
                 className="button button-secondary button-block"
-                onClick={() => {
+                disabled={isJoined || isJoining}
+                onClick={async () => {
+                  if (callRef.current) {
+                    await callRef.current.leave().catch(() => null);
+                    callRef.current.destroy();
+                    callRef.current = null;
+                  }
                   clearActiveSession();
                   setActiveSession(null);
+                  setCallState("idle");
                   setMessage("Session cleared from the studio.");
-                  setConversationState("ready");
                 }}
                 type="button"
               >
-                Clear staged session
+                End & clear session
               </button>
             </div>
           </article>
